@@ -1,0 +1,50 @@
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './tests/e2e',
+  timeout: 90000,
+  expect: { timeout: 10000 },
+  fullyParallel: false,
+  workers: 1,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 1 : 0,
+  reporter: [['list'], ['html', { open: 'never' }]],
+  use: {
+    baseURL: 'http://127.0.0.1:5173',
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+    launchOptions: { args: ['--enable-webgl', '--enable-unsafe-swiftshader'] },
+  },
+  projects: [
+    {
+      name: 'desktop',
+      testIgnore: /mobile\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: 'mobile',
+      testMatch: /mobile\.spec\.ts/,
+      use: {
+        ...devices['Galaxy S24'],
+        viewport: { width: 412, height: 915 },
+        isMobile: true,
+        hasTouch: true,
+        deviceScaleFactor: 2,
+      },
+    },
+  ],
+  webServer: [
+    {
+      command: 'npm run dev -- --host 127.0.0.1',
+      url: 'http://127.0.0.1:5173',
+      reuseExistingServer: !process.env.CI,
+      timeout: 30000,
+    },
+    {
+      command: 'npm exec tsx -- tests/e2e/server-fixture.ts',
+      url: 'http://127.0.0.1:8788/health',
+      reuseExistingServer: !process.env.CI,
+      timeout: 30000,
+    },
+  ],
+});

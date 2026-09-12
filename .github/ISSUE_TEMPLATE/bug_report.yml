@@ -1,0 +1,25 @@
+name: Alpha bug
+description: Report a gameplay, rendering, save, or networking problem.
+body:
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: What happened, and how can we reproduce it?
+      description: Include the expected behavior and the shortest sequence of actions.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Device, browser, graphics preset, and solo or online
+    validations:
+      required: true
+  - type: input
+    id: seed
+    attributes:
+      label: World seed and coordinates
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Add a screenshot, performance overlay values, or a solo save. Never include online session tokens or credentials.

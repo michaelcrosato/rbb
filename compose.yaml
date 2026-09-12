@@ -1,0 +1,17 @@
+services:
+  world:
+    build: .
+    init: true
+    restart: unless-stopped
+    ports:
+      - '8787:8787'
+    environment:
+      ALLOWED_ORIGINS: '${ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:4175}'
+      WORLD_SEED: '${WORLD_SEED:-quiet-frontier}'
+    volumes:
+      - world-data:/app/data
+    stop_grace_period: 15s
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  world-data:
