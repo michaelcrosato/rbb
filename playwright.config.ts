@@ -10,6 +10,9 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
+    // Full Chromium preserves relative pointer movement on Linux; headless shell
+    // emits compensating cursor-warp events that cancel movement under pointer lock.
+    channel: 'chromium',
     baseURL: 'http://127.0.0.1:5173',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

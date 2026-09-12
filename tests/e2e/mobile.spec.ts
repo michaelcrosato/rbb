@@ -31,10 +31,16 @@ test('mobile layout, touch move/look, menus and landscape fit the screen', async
     type: 'touchStart',
     touchPoints: [{ x: 200, y: 340, id: 2 }],
   });
-  await cdp.send('Input.dispatchTouchEvent', {
-    type: 'touchMove',
-    touchPoints: [{ x: 260, y: 365, id: 2 }],
-  });
+  // A finger swipe spans time. An instantaneous CDP swipe can leave Chromium's
+  // gesture recognizer suppressing the following tap even after touchEnd.
+  await page.waitForTimeout(30);
+  for (let step = 1; step <= 6; step++) {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: 200 + step * 10, y: 340 + (step * 25) / 6, id: 2 }],
+    });
+    await page.waitForTimeout(20);
+  }
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await page.waitForTimeout(100);
   expect(Math.abs((await diagnostics(page)).player.yaw)).toBeGreaterThan(0.1);

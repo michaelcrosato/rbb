@@ -14,6 +14,8 @@ Foundation verification recorded on 2026-09-12. This ledger distinguishes implem
 - GitHub Actions runs formatting, types, lint, unit/integration tests, builds and real Chromium scenarios on Linux. A separate job builds the Docker image and verifies readiness before and after a container restart with its persistent volume. The browser driver uses observed movement steps, state-based cooldown waits, in-browser jump observation and drag-to-look when pointer capture is unavailable; all gameplay assertions remain the same across platforms.
 - `npm audit --omit=dev` reports zero known production dependency vulnerabilities at verification time.
 
+Browser automation uses full Chromium's headless mode (`channel: 'chromium'`). A minimal Linux reproduction showed that the separate headless shell emits opposing cursor-warp movements under pointer lock; full Chromium preserves the intended relative input. This follows [Playwright's browser-channel guidance](https://playwright.dev/docs/browsers#chromium-new-headless-mode). The game and its input assertions do not change between platforms.
+
 ## Repeatable rendering workload
 
 `npm run benchmark` (with the dev server running) imports a validated 100-piece camp fixture through the actual save UI, warms the scene, records 12 samples and captures screenshots. It defaults to installed Chrome with hardware rendering; `npm run benchmark -- http://127.0.0.1:5173 --software` explicitly selects the software baseline. Inspect the recorded GPU string before interpreting FPS. Evidence is written to `.artifacts/benchmark/`.
