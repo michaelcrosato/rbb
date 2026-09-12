@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { aimAt, diagnostics, gather, startSolo, walkTo } from './helpers';
+import type { Diagnostics } from './helpers';
 import { startWorldServer } from '../../server/app';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -68,9 +69,13 @@ test('menu, settings, pause, movement and jump work without browser errors', asy
   await page.waitForTimeout(500);
   await page.keyboard.up('KeyS');
   expect((await diagnostics(page)).player.position.z).toBeGreaterThan(87);
+  const jumped = page.waitForFunction(
+    () =>
+      (window as unknown as { rbbDiagnostics: () => Diagnostics }).rbbDiagnostics().player.position
+        .y > 8.3,
+  );
   await page.keyboard.press('Space');
-  await page.waitForTimeout(120);
-  expect((await diagnostics(page)).player.position.y).toBeGreaterThan(8.3);
+  await jumped;
   await page.keyboard.press('Escape');
   const tick = (await diagnostics(page)).tick;
   await page.waitForTimeout(200);

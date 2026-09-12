@@ -6,10 +6,25 @@ This ledger distinguishes implementation, automated evidence, and physical-devic
 
 - Three.js `0.186.0` and matching types verified against the npm registry on 2026-09-12.
 - TypeScript and ESLint pass on Windows / Node 24.20.0.
-- 32 unit/integration tests pass: deterministic worlds and triangle collision; spatial queries; resource/crafting/building transactions; jump input preservation; survival/boar/death/respawn; save validation and backup recovery; real WebSocket sessions, replay/origin/schema rejection; private inventories; stale input; restart recovery; 12-client load; SQLite fail-closed recovery.
+- 33 unit/integration tests pass: deterministic worlds and triangle collision; spatial queries; resource/crafting/building transactions; jump input preservation; survival/boar/death/respawn; save validation and backup recovery; real WebSocket sessions, replay/origin/schema rejection; private inventories; stale input; restart recovery; 16-client load; SQLite fail-closed recovery, missing-primary recovery and future-schema rejection.
 - A 10-world-minute deterministic simulation soak maintains finite coordinates, bounded inventory and valid serialization.
 - Initial agent-browser visual verification: the menu and WebGL world render; no browser exceptions. Procedural models were merged to lower draw calls, and foliage self-shadow artifacts were removed.
-- Playwright desktop/touch scenarios are undergoing verification. Final results will replace this pending entry before alpha completion.
+- All five Playwright scenarios pass locally: gather/craft/build/export/reload/map; settings/keyboard focus/movement/jump/pause; automatic reconnect after a server process restart; two-browser session rejoin; portrait/landscape touch controls and menus. No browser exceptions were reported.
+- The built static client was served on port 4175 and checked with agent-browser. It renders and starts an expedition, and development diagnostics are absent from the production build.
+- GitHub Actions built the Docker image and verified readiness before and after a container restart with its persistent volume. The initial Linux browser run exposed timing assumptions in the AI navigation driver; the updated driver uses observed movement steps, state-based cooldown waits, and in-browser observation of jumps. Its updated Linux run is pending.
+
+## Repeatable rendering workload
+
+`npm run benchmark` (with the dev server running) imports a validated 100-piece camp fixture through the actual save UI, warms the scene, records 12 samples and captures screenshots. It defaults to installed Chrome with hardware rendering; `npm run benchmark -- http://127.0.0.1:5173 --software` explicitly selects the software baseline. Inspect the recorded GPU string before interpreting FPS. Evidence is written to `.artifacts/benchmark/`.
+
+Measured on 2026-09-12 with ANGLE Direct3D11 on **NVIDIA GeForce RTX 4070 SUPER**:
+
+| Scene                                   | Render size / ratio | Median and lowest sampled FPS | Draw calls | Triangles | Geometry count |
+| --------------------------------------- | ------------------- | ----------------------------- | ---------- | --------- | -------------- |
+| 100-piece camp, Balanced                | 1920 × 1080 / 1.0   | 144 / 144 (display limited)   | 161        | 110,682   | 76, stable     |
+| Same camp, Mobile preset on desktop GPU | 915 × 412 / 1.15    | 144 / 144 (display limited)   | 96         | 68,298    | 54, stable     |
+
+Neither scene reported a browser exception. The mobile row is a reduced viewport on a desktop GPU, **not a Galaxy S25 result**. Short sampling confirms this scene's render cost and steady resource count; it does not replace a warm physical-device soak.
 
 ## Physical hardware gates
 
@@ -24,7 +39,7 @@ Human device QA should record browser version, exact GPU/phone, viewport, preset
 - Server limit: 16 simultaneous clients, 512 registered survivors, 512 building pieces. This is a single-process SQLite deployment.
 - The world is a finite island, with chunk culling rather than unbounded streaming.
 - Saves are origin-local, with one active solo slot and a previous healthy backup. Export before changing browser/device or clearing site data.
-- The Docker daemon is not running on the development machine; the container build/restart check is included in GitHub CI and needs a verified green run.
+- The local Docker daemon is not running; the image build/restart verification was executed successfully in GitHub CI.
 - Production Vercel publication and real hardware performance are not claimed by the static build alone.
 
 ## Reproduction commands

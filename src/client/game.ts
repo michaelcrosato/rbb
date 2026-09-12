@@ -483,6 +483,7 @@ export class Game {
       mode: this.session?.mode,
       tick: this.session?.state.tick,
       player: p,
+      look: { yaw: this.input.yaw, pitch: this.input.pitch },
       resources: p
         ? this.session!.world.resources.filter(
             (r) => Math.hypot(r.x - p.position.x, r.z - p.position.z) < 40,

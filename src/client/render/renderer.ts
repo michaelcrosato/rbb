@@ -18,6 +18,7 @@ import {
   toolModel,
 } from './models';
 import { createTerrain } from './terrain';
+import { BuildingBatches } from './buildings';
 
 export type Quality = 'auto' | 'high' | 'balanced' | 'mobile';
 export interface RenderSettings {
@@ -65,7 +66,13 @@ export class WorldRenderer {
     quality: 'balanced',
   };
   private readonly resources = new Map<string, InstanceRef>();
-  private readonly structures = new Map<string, THREE.Group>();
+  private readonly buildings = new BuildingBatches();
+  private readonly cullables: {
+    object: THREE.Object3D;
+    center: THREE.Vector3;
+    radius: number;
+    kind: ResourceKind | 'terrain';
+  }[] = [];
   private readonly actors = new Map<string, THREE.Group>();
   private readonly loot = new Map<string, THREE.Mesh>();
   private readonly clouds = new THREE.Group();
@@ -82,6 +89,8 @@ export class WorldRenderer {
   private swing = 0;
   private settings: RenderSettings = { ...DEFAULT_SETTINGS };
   private resolution = 1;
+  private maxResolution = 1;
+  private stableSeconds = 0;
   private readonly resizeObserver: ResizeObserver;
   private world: WorldDefinition;
 
@@ -161,11 +170,21 @@ export class WorldRenderer {
   setWorld(world: WorldDefinition): void {
     for (const child of [...this.worldGroup.children]) disposeObject(child);
     this.resources.clear();
-    this.structures.clear();
+    this.buildings.reset(this.worldGroup);
+    this.cullables.length = 0;
     this.actors.clear();
     this.loot.clear();
     this.world = world;
-    this.worldGroup.add(createTerrain(world));
+    const terrain = createTerrain(world);
+    this.worldGroup.add(terrain);
+    for (const object of terrain.children)
+      if (object instanceof THREE.Mesh && object.geometry.boundingSphere)
+        this.cullables.push({
+          object,
+          center: object.geometry.boundingSphere.center,
+          radius: object.geometry.boundingSphere.radius,
+          kind: 'terrain',
+        });
     const buckets = new Map<string, Resource[]>();
     for (const resource of world.resources) {
       const key = `${resource.kind}:${Math.floor(resource.x / 64)},${Math.floor(resource.z / 64)}`;
@@ -199,6 +218,12 @@ export class WorldRenderer {
         });
       });
       batch.computeBoundingSphere();
+      this.cullables.push({
+        object: batch,
+        center: batch.boundingSphere!.center,
+        radius: batch.boundingSphere!.radius,
+        kind,
+      });
       this.worldGroup.add(batch);
     }
     this.previousTime = 0;
@@ -233,6 +258,8 @@ export class WorldRenderer {
         : tier === 'mobile'
           ? Math.min(devicePixelRatio, 1.15)
           : Math.min(devicePixelRatio, 1.4);
+    this.maxResolution = this.resolution;
+    this.stableSeconds = 0;
     this.renderer.shadowMap.enabled = tier !== 'mobile';
     this.sun.shadow.mapSize.setScalar(tier === 'high' ? 2048 : 1024);
     this.sun.shadow.map?.dispose();
@@ -264,20 +291,7 @@ export class WorldRenderer {
         ref.active = active;
       }
     }
-    const live = new Set(snapshot.buildings.map((b) => b.id));
-    for (const [id, object] of this.structures)
-      if (!live.has(id)) {
-        disposeObject(object);
-        this.structures.delete(id);
-      }
-    for (const building of snapshot.buildings)
-      if (!this.structures.has(building.id)) {
-        const object = buildingModel(building.kind);
-        object.position.set(building.x, building.y, building.z);
-        object.rotation.y = (building.rotation * Math.PI) / 2;
-        this.structures.set(building.id, object);
-        this.worldGroup.add(object);
-      }
+    this.buildings.sync(snapshot.buildings);
     const actors = new Set<string>();
     for (const animal of snapshot.animals) {
       if (animal.health <= 0) continue;
@@ -457,7 +471,10 @@ export class WorldRenderer {
     worldTime: number,
     active: boolean,
   ): void {
-    const dt = this.previousTime ? Math.min((time - this.previousTime) / 1000, 0.1) : 1 / 60;
+    const elapsedFrame = this.previousTime
+      ? Math.max(0, (time - this.previousTime) / 1000)
+      : 1 / 60;
+    const dt = Math.min(elapsedFrame, 0.1);
     this.previousTime = time;
     this.elapsed += dt;
     if (player) {
@@ -498,16 +515,36 @@ export class WorldRenderer {
     this.water.material.uniforms.brightness.value = 0.25 + light * 0.75;
     this.water.material.uniforms.fogColor.value.copy(sky);
     this.clouds.rotation.y = this.elapsed * 0.001;
-    for (const structure of this.structures.values()) {
-      const flame = structure.getObjectByName('flame');
-      if (flame) {
-        flame.scale.y = 1 + Math.sin(this.elapsed * 9) * 0.14;
-        flame.rotation.y = this.elapsed;
-      }
+    this.buildings.update(this.elapsed);
+    const mobile = this.stats.quality === 'mobile',
+      high = this.stats.quality === 'high';
+    for (const c of this.cullables) {
+      const range =
+        c.kind === 'terrain' || c.kind === 'tree'
+          ? mobile
+            ? 240
+            : high
+              ? 560
+              : 380
+          : c.kind === 'rock'
+            ? mobile
+              ? 145
+              : high
+                ? 340
+                : 240
+            : mobile
+              ? 70
+              : high
+                ? 160
+                : 110;
+      c.object.visible =
+        !player ||
+        Math.hypot(this.camera.position.x - c.center.x, this.camera.position.z - c.center.z) <
+          range + c.radius;
     }
     this.renderer.render(this.scene, this.camera);
     this.frameCount++;
-    this.frameTime += dt;
+    this.frameTime += elapsedFrame;
     if (this.frameTime >= 1) {
       this.stats.fps = Math.round(this.frameCount / this.frameTime);
       this.stats.drawCalls = this.renderer.info.render.calls;
@@ -515,11 +552,23 @@ export class WorldRenderer {
       this.stats.geometries = this.renderer.info.memory.geometries;
       if (
         this.settings.quality === 'auto' &&
+        !document.hidden &&
         this.elapsed > 5 &&
         this.stats.fps < 42 &&
         this.resolution > 0.7
       ) {
         this.resolution = Math.max(0.7, this.resolution - 0.1);
+        this.resize();
+      }
+      this.stableSeconds =
+        this.stats.fps >= 58 && !document.hidden ? this.stableSeconds + this.frameTime : 0;
+      if (
+        this.settings.quality === 'auto' &&
+        this.stableSeconds > 12 &&
+        this.resolution < this.maxResolution
+      ) {
+        this.resolution = Math.min(this.maxResolution, this.resolution + 0.1);
+        this.stableSeconds = 0;
         this.resize();
       }
       this.frameTime = 0;

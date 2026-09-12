@@ -44,7 +44,7 @@ Haven meadow has guaranteed wood, stone, flax, berries, and a freshwater spring 
 
 ## What is implemented
 
-- 640 × 640 m seeded heightfield with matching triangle collision, spatial resource queries, chunk culling, instanced foliage, low-poly models, ocean, day/night lighting, and quality presets with automatic resolution reduction.
+- 640 × 640 m seeded heightfield with matching triangle collision, spatial resource queries, chunk culling, instanced foliage and buildings, low-poly models, ocean, day/night lighting, and adaptive resolution with recovery.
 - Fixed 30 Hz simulation, movement/jump/swim, stamina, hunger/thirst, resource depletion/regrowth, bounded inventories, atomic recipes, building validation, boar combat, cooking, healing, death/respawn, and persisted milestones.
 - Versioned solo saves with schema validation, previous-save recovery, export/import, and explicit storage failure messages.
 - Optional authoritative Node/WebSocket server: command validation, replay protection, speed and reach authority, action/payload/connection limits, origin checks, private inventories, guest resume sessions, reconnect backoff, stale-input clearing, slow-client rejection, SQLite WAL snapshots, recovery and health endpoint.
@@ -57,6 +57,7 @@ npm run check          # types, lint, unit/integration tests, client + server bu
 npm exec playwright -- install chromium
 npm run test:e2e       # real browser controls, WebGL, saves, multiplayer and touch
 npm run format:check
+npm run benchmark      # 100-piece camp workload; dev server + installed Chrome required
 npm run preview       # serve the production client on :4175
 npm run start:server   # run the built world server
 ```

@@ -4,7 +4,7 @@
 
 `src/shared` owns world generation, registries, state, physics, simulation and the wire protocol. No DOM, Three.js, wall-clock time, filesystem or network dependencies belong here. Simulation advances at a fixed 30 Hz. Commands express intent; simulation validates range, cost, cooldowns, support and capacity before applying a transaction.
 
-`src/client` owns Three.js presentation, input, audio, UI, transports and browser persistence. Solo mode and the dedicated server run the same simulation. Rendering runs independently of simulation and interpolates snapshots. Content IDs and stable world entity IDs join these layers.
+`src/client` owns Three.js presentation, input, audio, UI, transports and browser persistence. Solo mode and the dedicated server run the same simulation. Rendering runs independently of simulation and smooths the camera toward fixed-step or authoritative snapshots. Content IDs and stable world entity IDs join these layers. Foliage uses spatial instance batches; buildings share instance batches by piece type so adding a large camp does not add one draw call per piece.
 
 `server` owns WebSocket sessions, authoritative ticks, payload/origin/rate limits, private resume credentials, SQLite snapshots and health checks. A session controls one player. The client never sends inventory or position. The server sends only the local player's private inventory, plus public player appearances and shared world mutations.
 

@@ -193,6 +193,21 @@ describe('authoritative world server', () => {
 });
 
 describe('durability and rate limits', () => {
+  it('recovers a missing primary row and refuses unknown database schema versions', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'rbb-schema-'));
+    directories.push(dir);
+    const path = join(dir, 'world.db');
+    const store = new WorldStore(path);
+    const state = createState(generateWorld('recovery'));
+    store.save(state);
+    store.save(state);
+    store.db.prepare('DELETE FROM snapshots WHERE slot = ?').run('current');
+    expect(store.load()!.seed).toBe('recovery');
+    expect(store.recovered).toBe(true);
+    store.db.exec('PRAGMA user_version=2');
+    store.close();
+    expect(() => new WorldStore(path)).toThrow(/newer schema/);
+  });
   it('atomically recovers a corrupt snapshot from the previous healthy snapshot', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'rbb-store-'));
     directories.push(dir);
