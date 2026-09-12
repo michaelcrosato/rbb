@@ -108,6 +108,29 @@ test('online survivor automatically reconnects after a world process restart', a
   }
 });
 
+test('a graphics-context interruption pauses solo play and reload restores the save', async ({
+  page,
+}) => {
+  await startSolo(page);
+  await page.keyboard.down('KeyS');
+  await page.waitForTimeout(400);
+  await page.keyboard.up('KeyS');
+  await page.evaluate(() =>
+    document
+      .querySelector('canvas')!
+      .getContext('webgl2')!
+      .getExtension('WEBGL_lose_context')!
+      .loseContext(),
+  );
+  await expect(page.locator('#fatal')).toBeVisible();
+  const before = await diagnostics(page);
+  await page.waitForTimeout(300);
+  expect((await diagnostics(page)).tick).toBe(before.tick);
+  await page.reload();
+  await page.getByRole('button', { name: 'Continue expedition' }).click();
+  expect((await diagnostics(page)).player.position.z).toBeCloseTo(before.player.position.z, 2);
+});
+
 test('two browsers join a persistent authoritative world and resume a survivor', async ({
   browser,
 }, testInfo) => {

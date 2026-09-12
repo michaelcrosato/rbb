@@ -107,7 +107,7 @@ export class WorldRenderer {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.13;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.scene.background = new THREE.Color('#bad5dc');
     this.scene.fog = new THREE.Fog('#bad5dc', 100, 560);
     this.scene.add(this.ambient, this.sun, this.sun.target, this.worldGroup, this.clouds);

@@ -111,8 +111,8 @@ export class Game {
       'webglcontextlost',
       (e) => {
         e.preventDefault();
-        this.save();
-        this.input.active = false;
+        this.openPanel('pause');
+        if (this.session?.mode === 'online') this.session.close();
         this.ui.fatal(
           'The graphics context was interrupted. Your latest progress has been saved where storage is available. Reload to restore the world.',
         );
@@ -319,8 +319,8 @@ export class Game {
     this.input.reset();
     this.saveTime = 0;
     void this.audio.unlock();
-    await this.lockPointer();
     this.ui.toast('Welcome to Haven. Gather flax ahead, then find timber and stone.');
+    await this.lockPointer();
   }
 
   private async connect(): Promise<void> {

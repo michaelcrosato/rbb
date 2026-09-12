@@ -45,12 +45,33 @@ export async function aimAt(page: Page, x: number, y: number, z: number): Promis
   const yaw = Math.atan2(-dx, -dz),
     pitch = Math.atan2(y - player.position.y - 1.65, Math.hypot(dx, dz));
   const delta = Math.atan2(Math.sin(yaw - look.yaw), Math.cos(yaw - look.yaw));
-  await page.mouse.move(600 - delta / 0.0022, 300 - (pitch - look.pitch) / 0.0022);
+  const pointerLocked = await page.evaluate(() => document.pointerLockElement !== null);
+  let remainingX = -delta / 0.0022,
+    remainingY = -(pitch - look.pitch) / 0.0022;
+  if (pointerLocked) {
+    await page.mouse.move(600 + remainingX, 300 + remainingY);
+  } else {
+    // Headless Chromium may decline pointer capture. Exercise the same drag control
+    // available to players, keeping each stroke within the canvas.
+    while (Math.abs(remainingX) > 0.1 || Math.abs(remainingY) > 0.1) {
+      const stepX = Math.max(-350, Math.min(350, remainingX)),
+        stepY = Math.max(-230, Math.min(230, remainingY));
+      await page.mouse.move(600, 300);
+      await page.mouse.down();
+      await page.mouse.move(600 + stepX, 300 + stepY);
+      await page.mouse.up();
+      remainingX -= stepX;
+      remainingY -= stepY;
+    }
+  }
   await expect
-    .poll(async () => {
-      const d = await diagnostics(page);
-      return Math.abs(Math.atan2(Math.sin(yaw - d.player.yaw), Math.cos(yaw - d.player.yaw)));
-    })
+    .poll(
+      async () => {
+        const d = await diagnostics(page);
+        return Math.abs(Math.atan2(Math.sin(yaw - d.player.yaw), Math.cos(yaw - d.player.yaw)));
+      },
+      { message: `Camera reaches the intended heading (pointer locked: ${pointerLocked})` },
+    )
     .toBeLessThan(0.02);
 }
 
