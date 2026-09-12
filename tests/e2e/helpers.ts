@@ -76,7 +76,7 @@ export async function aimAt(page: Page, x: number, y: number, z: number): Promis
 }
 
 export async function walkTo(page: Page, x: number, z: number, stop = 0.7): Promise<void> {
-  // Short, observed steps cannot overshoot indefinitely when software-rendered CI is slow.
+  // Stop after observed movement; wall-clock taps vary with render and driver latency.
   const deadline = Date.now() + 45000;
   while (Date.now() < deadline) {
     const d = await diagnostics(page);
@@ -87,11 +87,31 @@ export async function walkTo(page: Page, x: number, z: number, stop = 0.7): Prom
       Math.abs(Math.atan2(Math.sin(heading - d.look.yaw), Math.cos(heading - d.look.yaw))) > 0.025
     )
       await aimAt(page, x, d.player.position.y + 1.65, z);
-    await page.keyboard.down('KeyW');
+    const moved = page.waitForFunction(
+      ({ x, z, stop, startX, startZ, stride }) => {
+        const p = (window as unknown as { rbbDiagnostics: () => Diagnostics }).rbbDiagnostics()
+          .player.position;
+        return (
+          Math.hypot(x - p.x, z - p.z) < stop || Math.hypot(p.x - startX, p.z - startZ) >= stride
+        );
+      },
+      {
+        x,
+        z,
+        stop,
+        startX: d.player.position.x,
+        startZ: d.player.position.z,
+        stride: Math.min(0.5, Math.max(0.1, distance - stop)),
+      },
+      { timeout: 8000 },
+    );
     try {
-      await page.waitForTimeout(Math.min(240, Math.max(40, ((distance - stop) / 5) * 1000)));
-    } finally {
+      // Install the observer before keydown and release immediately when it resolves,
+      // even if the keydown acknowledgement is still waiting for a slow render frame.
+      await Promise.all([page.keyboard.down('KeyW'), moved.then(() => page.keyboard.up('KeyW'))]);
+    } catch (error) {
       await page.keyboard.up('KeyW');
+      throw error;
     }
   }
   const d = await diagnostics(page);

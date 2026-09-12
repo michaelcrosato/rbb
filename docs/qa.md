@@ -10,11 +10,14 @@ Foundation verification recorded on 2026-09-12. This ledger distinguishes implem
 - A 10-world-minute deterministic simulation soak maintains finite coordinates, bounded inventory and valid serialization.
 - Initial agent-browser visual verification: the menu and WebGL world render; no browser exceptions. Procedural models were merged to lower draw calls, and foliage self-shadow artifacts were removed.
 - All six Playwright scenarios pass locally: gather/craft/build/export/reload/map; settings/keyboard focus/movement/jump/pause; automatic reconnect after a server process restart; graphics-context interruption and save recovery; two-browser session rejoin; portrait/landscape touch controls and menus. No unexpected browser exceptions were reported.
+- The complete gather/craft/build/export/reload scenario also passed in Linux with forced SwiftShader rendering and a two-CPU affinity limit, verifying the automation under slower rendering. The mobile gesture scenario passed in Linux as well.
 - The built static client was served on port 4175 and checked with agent-browser. It renders and starts an expedition, and development diagnostics are absent from the production build.
 - GitHub Actions runs formatting, types, lint, unit/integration tests, builds and real Chromium scenarios on Linux. A separate job builds the Docker image and verifies readiness before and after a container restart with its persistent volume. The browser driver uses observed movement steps, state-based cooldown waits, in-browser jump observation and drag-to-look when pointer capture is unavailable; all gameplay assertions remain the same across platforms.
 - `npm audit --omit=dev` reports zero known production dependency vulnerabilities at verification time.
 
 Browser automation uses full Chromium's headless mode (`channel: 'chromium'`). A minimal Linux reproduction showed that the separate headless shell emits opposing cursor-warp movements under pointer lock; full Chromium preserves the intended relative input. This follows [Playwright's browser-channel guidance](https://playwright.dev/docs/browsers#chromium-new-headless-mode). The game and its input assertions do not change between platforms.
+
+Navigation releases real keyboard input after observing movement. Touch swipes use timed intermediate points. Continuous trace screenshots are disabled because WebGL readbacks distort input timing on software-rendered runners; action/DOM/network traces, failure screenshots and the explicitly captured gameplay images remain available.
 
 ## Repeatable rendering workload
 

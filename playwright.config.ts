@@ -14,7 +14,9 @@ export default defineConfig({
     // emits compensating cursor-warp events that cancel movement under pointer lock.
     channel: 'chromium',
     baseURL: 'http://127.0.0.1:5173',
-    trace: 'retain-on-failure',
+    // Continuous WebGL screenshots force GPU readbacks on software-rendered CI.
+    // Keep DOM/action/network traces and explicit evidence screenshots instead.
+    trace: { mode: 'retain-on-failure', screenshots: false, snapshots: true, sources: true },
     screenshot: 'only-on-failure',
     launchOptions: { args: ['--enable-webgl', '--enable-unsafe-swiftshader'] },
   },
