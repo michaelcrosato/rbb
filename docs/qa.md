@@ -1,6 +1,6 @@
 # Alpha verification ledger
 
-This ledger distinguishes implementation, automated evidence, and physical-device QA. It is updated during foundation verification.
+Foundation verification recorded on 2026-09-12. This ledger distinguishes implementation, automated evidence, and physical-device QA. The [public CI history](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml) records checks for each revision.
 
 ## Executed so far
 
@@ -9,9 +9,10 @@ This ledger distinguishes implementation, automated evidence, and physical-devic
 - 33 unit/integration tests pass: deterministic worlds and triangle collision; spatial queries; resource/crafting/building transactions; jump input preservation; survival/boar/death/respawn; save validation and backup recovery; real WebSocket sessions, replay/origin/schema rejection; private inventories; stale input; restart recovery; 16-client load; SQLite fail-closed recovery, missing-primary recovery and future-schema rejection.
 - A 10-world-minute deterministic simulation soak maintains finite coordinates, bounded inventory and valid serialization.
 - Initial agent-browser visual verification: the menu and WebGL world render; no browser exceptions. Procedural models were merged to lower draw calls, and foliage self-shadow artifacts were removed.
-- All five Playwright scenarios pass locally: gather/craft/build/export/reload/map; settings/keyboard focus/movement/jump/pause; automatic reconnect after a server process restart; two-browser session rejoin; portrait/landscape touch controls and menus. No browser exceptions were reported.
+- All six Playwright scenarios pass locally: gather/craft/build/export/reload/map; settings/keyboard focus/movement/jump/pause; automatic reconnect after a server process restart; graphics-context interruption and save recovery; two-browser session rejoin; portrait/landscape touch controls and menus. No unexpected browser exceptions were reported.
 - The built static client was served on port 4175 and checked with agent-browser. It renders and starts an expedition, and development diagnostics are absent from the production build.
-- GitHub Actions built the Docker image and verified readiness before and after a container restart with its persistent volume. The initial Linux browser run exposed timing assumptions in the AI navigation driver; the updated driver uses observed movement steps, state-based cooldown waits, and in-browser observation of jumps. Its updated Linux run is pending.
+- GitHub Actions runs formatting, types, lint, unit/integration tests, builds and real Chromium scenarios on Linux. A separate job builds the Docker image and verifies readiness before and after a container restart with its persistent volume. The browser driver uses observed movement steps, state-based cooldown waits, in-browser jump observation and drag-to-look when pointer capture is unavailable; all gameplay assertions remain the same across platforms.
+- `npm audit --omit=dev` reports zero known production dependency vulnerabilities at verification time.
 
 ## Repeatable rendering workload
 

@@ -1,8 +1,12 @@
 # RBB · The quiet frontier
 
+[![Alpha checks](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml)
+
 A low-poly survival sandbox built on **Three.js r186**, TypeScript, and a deterministic simulation shared by browser and server. AI authors the implementation; humans direct features, playtest, and tune the balance.
 
 Explore a seeded island, gather materials, craft better tools, build a camp, and survive. Start a solo expedition immediately or connect to a persistent cooperative world. This is an expandable foundation alpha, not a complete Rust clone.
+
+![Haven meadow in the running alpha: low-poly pines, stone, flax and the survival HUD](docs/images/haven-meadow.png)
 
 ## Run locally
 
@@ -28,7 +32,7 @@ Choose **Join a world**, enter `ws://localhost:8787`, and join. The server creat
 | Control        | Action                                                |
 | -------------- | ----------------------------------------------------- |
 | WASD / arrows  | Move                                                  |
-| Mouse          | Look; double-click the world to capture if needed     |
+| Mouse          | Look; drag if uncaptured; double-click to capture     |
 | Shift / Space  | Sprint / jump                                         |
 | E / left mouse | Gather, attack, collect, or place a building          |
 | Tab / I        | Pack and crafting                                     |

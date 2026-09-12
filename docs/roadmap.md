@@ -2,13 +2,15 @@
 
 ## Foundation acceptance
 
-- [ ] Current stable Three.js, reproducible TypeScript build and public GitHub repository.
-- [ ] Attractive seeded island, collision, first-person movement, touch controls, quality settings.
-- [ ] Gather, craft, build, survival, wildlife, death/respawn and milestones.
-- [ ] Validated solo persistence, backup/recovery and save export/import.
-- [ ] Playable authoritative multiplayer, reconnect, disk persistence and abuse limits.
-- [ ] Unit, integration, browser, mobile-layout and soak verification; CI and contributor guidance.
-- [ ] Vercel-ready static client and documented container server deployment.
+- [x] Current stable Three.js, reproducible TypeScript build and public GitHub repository.
+- [x] Attractive seeded island, collision, first-person movement, touch controls, quality settings.
+- [x] Gather, craft, build, survival, wildlife, death/respawn and milestones.
+- [x] Validated solo persistence, backup/recovery and save export/import.
+- [x] Playable authoritative multiplayer, reconnect, disk persistence and abuse limits.
+- [x] Unit, integration, browser, mobile-layout and soak verification; CI and contributor guidance.
+- [x] Vercel-ready static client and documented container server deployment.
+
+Acceptance evidence and measured limits are recorded in [QA](qa.md). Physical RTX 3000/S25 testing, human balance feedback and production publication remain follow-up work; the static client and persistent server are ready for those steps.
 
 ## Subsequent iterations
 
