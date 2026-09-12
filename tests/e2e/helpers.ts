@@ -28,9 +28,14 @@ export const diagnostics = (page: Page): Promise<Diagnostics> =>
     (window as unknown as { rbbDiagnostics: () => Diagnostics }).rbbDiagnostics(),
   );
 
-export async function startSolo(page: Page): Promise<void> {
+export async function startSolo(page: Page, quality: 'auto' | 'mobile' = 'auto'): Promise<void> {
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Enter the frontier' })).toBeVisible();
+  if (quality !== 'auto') {
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.locator('#quality').selectOption(quality);
+    await page.getByRole('button', { name: 'Apply settings' }).click();
+  }
   await page.getByRole('button', { name: 'Enter the frontier' }).click();
   await expect(page.locator('#hud')).toBeVisible();
   await expect.poll(async () => (await diagnostics(page)).tick).toBeGreaterThan(1);
@@ -101,7 +106,7 @@ export async function walkTo(page: Page, x: number, z: number, stop = 0.7): Prom
         stop,
         startX: d.player.position.x,
         startZ: d.player.position.z,
-        stride: Math.min(0.5, Math.max(0.1, distance - stop)),
+        stride: Math.min(2, Math.max(0.1, (distance - stop) / 2)),
       },
       { timeout: 8000 },
     );

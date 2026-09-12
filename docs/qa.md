@@ -19,6 +19,8 @@ Browser automation uses full Chromium's headless mode (`channel: 'chromium'`). A
 
 Navigation releases real keyboard input after observing movement. Touch swipes use timed intermediate points. Continuous trace screenshots are disabled because WebGL readbacks distort input timing on software-rendered runners; action/DOM/network traces, failure screenshots and the explicitly captured gameplay images remain available.
 
+The long gather/craft/build browser journey selects the Mobile graphics preset through Settings so it stays responsive on GPU-free runners. Its keyboard, mouse, resource, inventory, building and persistence assertions are identical on every platform. Desktop rendering cost is recorded separately by the Balanced benchmark below.
+
 ## Repeatable rendering workload
 
 `npm run benchmark` (with the dev server running) imports a validated 100-piece camp fixture through the actual save UI, warms the scene, records 12 samples and captures screenshots. It defaults to installed Chrome with hardware rendering; `npm run benchmark -- http://127.0.0.1:5173 --software` explicitly selects the software baseline. Inspect the recorded GPU string before interpreting FPS. Evidence is written to `.artifacts/benchmark/`.

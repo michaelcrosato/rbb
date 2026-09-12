@@ -11,7 +11,8 @@ test('survivor gathers, crafts, builds, exports and resumes a saved expedition',
 }, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await startSolo(page);
+  // Keep long interaction checks responsive on runners without a GPU.
+  await startSolo(page, 'mobile');
   await page.screenshot({ path: testInfo.outputPath('first-footprints.png') });
   await gather(page, 'starter-fiber', 1);
   await gather(page, 'starter-tree', 6);
