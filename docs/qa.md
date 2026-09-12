@@ -19,6 +19,8 @@ Browser automation uses full Chromium's headless mode (`channel: 'chromium'`). A
 
 Navigation releases real keyboard input after observing movement. Touch swipes use timed intermediate points. Continuous trace screenshots are disabled because WebGL readbacks distort input timing on software-rendered runners; action/DOM/network traces, failure screenshots and the explicitly captured gameplay images remain available.
 
+A navigation probe with 400 ms delayed key releases also passed the original 0.7 m destination tolerance. The driver uses a lateral correction when delayed input would otherwise cause repeated overshoot. CI requires a first-pass success and stops at the first failure to return diagnostics promptly.
+
 The long gather/craft/build browser journey selects the Mobile graphics preset through Settings so it stays responsive on GPU-free runners. Its keyboard, mouse, resource, inventory, building and persistence assertions are identical on every platform. Desktop rendering cost is recorded separately by the Balanced benchmark below.
 
 ## Repeatable rendering workload

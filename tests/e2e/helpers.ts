@@ -83,10 +83,22 @@ export async function aimAt(page: Page, x: number, y: number, z: number): Promis
 export async function walkTo(page: Page, x: number, z: number, stop = 0.7): Promise<void> {
   // Stop after observed movement; wall-clock taps vary with render and driver latency.
   const deadline = Date.now() + 45000;
+  const route: { x: number; z: number; distance: number; key: string }[] = [];
   while (Date.now() < deadline) {
     const d = await diagnostics(page);
     const distance = Math.hypot(x - d.player.position.x, z - d.player.position.z);
     if (distance < stop) return;
+    const previous = route.at(-1);
+    const lastStep = previous
+      ? Math.hypot(d.player.position.x - previous.x, d.player.position.z - previous.z)
+      : 0;
+    // A delayed key release can step across a small goal repeatedly. A lateral
+    // correction breaks that cycle, then the next forward step approaches afresh.
+    const key =
+      previous?.key === 'KeyW' && distance < lastStep && previous.distance < lastStep
+        ? 'KeyD'
+        : 'KeyW';
+    route.push({ x: d.player.position.x, z: d.player.position.z, distance, key });
     const heading = Math.atan2(d.player.position.x - x, d.player.position.z - z);
     if (
       Math.abs(Math.atan2(Math.sin(heading - d.look.yaw), Math.cos(heading - d.look.yaw))) > 0.025
@@ -106,23 +118,23 @@ export async function walkTo(page: Page, x: number, z: number, stop = 0.7): Prom
         stop,
         startX: d.player.position.x,
         startZ: d.player.position.z,
-        stride: Math.min(2, Math.max(0.1, (distance - stop) / 2)),
+        stride: key === 'KeyD' ? 0.1 : Math.min(2, Math.max(0.1, (distance - stop) / 2)),
       },
       { timeout: 8000 },
     );
     try {
       // Install the observer before keydown and release immediately when it resolves,
       // even if the keydown acknowledgement is still waiting for a slow render frame.
-      await Promise.all([page.keyboard.down('KeyW'), moved.then(() => page.keyboard.up('KeyW'))]);
+      await Promise.all([page.keyboard.down(key), moved.then(() => page.keyboard.up(key))]);
     } catch (error) {
-      await page.keyboard.up('KeyW');
+      await page.keyboard.up(key);
       throw error;
     }
   }
   const d = await diagnostics(page);
   expect(
     Math.hypot(x - d.player.position.x, z - d.player.position.z),
-    'AI navigator reached the destination using keyboard input',
+    `AI navigator reached the destination using keyboard input: ${JSON.stringify({ target: { x, z }, route: route.slice(-6) })}`,
   ).toBeLessThan(stop);
 }
 
