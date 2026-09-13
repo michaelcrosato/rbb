@@ -48,6 +48,10 @@ export async function startSolo(page: Page, quality: 'auto' | 'mobile' = 'auto')
   if (quality !== 'auto') {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await page.locator('#quality').selectOption(quality);
+    // Exercise the full scene/effect pipeline at a bounded pixel cost on GPU-free runners.
+    // Hardware-resolution performance and visual evidence come from scripts/benchmark.ts.
+    await page.getByText('Rendering effects', { exact: true }).click();
+    await page.locator('[data-graphics="resolutionScale"]').fill('0.5');
     await page.getByRole('button', { name: 'Apply settings' }).click();
   }
   await page.getByRole('button', { name: 'Enter the frontier' }).click();

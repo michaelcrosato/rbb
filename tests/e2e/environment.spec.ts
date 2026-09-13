@@ -102,6 +102,8 @@ test('advanced variations validate, persist, and survive reload; renderer switch
     await expect.poll(async () => (await diagnostics(page)).graphics.ambientOcclusion).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`post-effects-${cycle}.png`) });
     await page.getByRole('button', { name: 'Reset rendering defaults' }).click();
+    await page.locator('[data-graphics="resolutionScale"]').fill('0.5');
+    await page.getByRole('button', { name: 'Apply rendering', exact: true }).click();
     await expect.poll(async () => (await diagnostics(page)).graphics.ambientOcclusion).toBe(false);
     await expect
       .poll(async () => (await diagnostics(page)).renderer.textures)

@@ -22,7 +22,7 @@ Navigation releases real keyboard input after observing movement. Touch swipes u
 
 A navigation probe with 400 ms delayed key releases also passed the original 0.7 m destination tolerance. The driver uses a lateral correction when delayed input would otherwise cause repeated overshoot. CI requires a first-pass success and stops at the first failure to return diagnostics promptly.
 
-The long gather/craft/build browser journey selects the Mobile graphics preset through Settings so it stays responsive on GPU-free runners. Its keyboard, mouse, resource, inventory, building and persistence assertions are identical on every platform. Desktop rendering cost is recorded separately by the Balanced benchmark below.
+The long gather/craft/build journey and environment control journeys select Mobile with 50% resolution scale through Settings on every platform. The first 0.2 Linux run spent roughly seven seconds per UI action at full resolution and exhausted the scenario timeout, without a failed feature assertion. Bounding pixel cost keeps the full WebGL/effect pipeline and gameplay assertions while making these controls practical on GPU-free runners. Desktop rendering cost and full-resolution visual evidence are recorded separately by the benchmark below.
 
 ## Repeatable rendering workload
 
