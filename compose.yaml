@@ -8,6 +8,7 @@ services:
     environment:
       ALLOWED_ORIGINS: '${ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:4175}'
       WORLD_SEED: '${WORLD_SEED:-quiet-frontier}'
+      ALLOW_DEV_TOOLS: '${ALLOW_DEV_TOOLS:-false}'
     volumes:
       - world-data:/app/data
     stop_grace_period: 15s

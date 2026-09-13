@@ -1,12 +1,14 @@
-import { BALANCE, BUILDINGS, ITEMS, RECIPES, RESOURCE_TYPES } from './content';
+import { BALANCE, BUILDINGS, ITEMS, RECIPES, RESOURCE_TYPES, WILDLIFE } from './content';
 import { buildCandidate, validateBuild } from './building';
 import { transact } from './inventory';
 import { clamp, distance2 } from './math';
-import { groundHeight, lineOfSight, stepPlayer } from './physics';
+import { lineOfSight, stepPlayer } from './physics';
 import type { Command } from './protocol';
 import { createPlayer, idleInput, resourceHealth, resourceIsActive } from './state';
 import type { GameEvent, GameState, PlayerState, Result } from './state';
-import { terrainHeight } from './world';
+import { developerAction, developerSchema } from './developer';
+import { stepEnvironment } from './environment';
+import { stepWildlife } from './wildlife';
 import type { WorldDefinition } from './world';
 
 export class Simulation {
@@ -14,6 +16,7 @@ export class Simulation {
   constructor(
     readonly world: WorldDefinition,
     readonly state: GameState,
+    readonly devAllowed = false,
   ) {}
 
   addPlayer(id: string, name: string): PlayerState {
@@ -33,6 +36,17 @@ export class Simulation {
     const p = this.state.players[id];
     if (!p) return { ok: false, message: 'Survivor not found.' };
     const fail = (message: string): Result => ({ ok: false, message });
+    if (command.type === 'dev') {
+      if (!this.devAllowed) return fail('Developer tools are disabled by this server.');
+      const validated = developerSchema.safeParse(command.request);
+      if (!validated.success) return fail('Invalid developer parameters.');
+      if (validated.data.action === 'step') {
+        this.state.sandbox = true;
+        for (let i = 0; i < validated.data.ticks; i++) this.tick();
+        return { ok: true, message: `Advanced ${validated.data.ticks} simulation ticks.` };
+      }
+      return developerAction(this.state, this.world, p, validated.data);
+    }
     if (command.type === 'respawn') {
       if (p.health > 0) return fail('You are already alive.');
       p.position = { ...p.respawn };
@@ -41,6 +55,7 @@ export class Simulation {
       p.hunger = 80;
       p.thirst = 80;
       p.stamina = 100;
+      p.oxygen = 100;
       p.inventory = { rock: 1, berries: 2 };
       p.equipped = 'rock';
       p.input = idleInput();
@@ -50,7 +65,10 @@ export class Simulation {
     }
     if (p.health <= 0) return fail('Respawn to continue.');
     if (command.type === 'move') {
-      p.input = { ...command.input, jump: p.input.jump || command.input.jump };
+      p.input = {
+        ...command.input,
+        jump: p.dev.flight ? command.input.jump : p.input.jump || command.input.jump,
+      };
       return { ok: true, message: '' };
     }
     if (command.type === 'equip') {
@@ -105,7 +123,7 @@ export class Simulation {
       );
       const result = validateBuild(this.state, this.world, p, b);
       if (!result.ok) return result;
-      const cost = transact(p.inventory, BUILDINGS[b.kind].cost, {});
+      const cost = transact(p.inventory, p.dev.freeBuild ? {} : BUILDINGS[b.kind].cost, {});
       if (!cost.ok) return cost;
       this.state.buildings.push({ ...b, id: `b${this.state.nextId++}`, owner: id });
       p.cooldown = 0.4;
@@ -150,38 +168,48 @@ export class Simulation {
       const def = RESOURCE_TYPES[resource.kind];
       const multiplier = p.equipped === def.tool && def.health > 1 ? 3 : 1;
       const hits = Math.min(resourceHealth(this.state, this.world, id), multiplier);
-      const result = transact(p.inventory, {}, { [def.item]: def.yield * hits });
+      const result = transact(
+        p.inventory,
+        {},
+        { [def.item]: def.yield * hits * this.state.tuning.gatherYield },
+      );
       if (!result.ok) return result;
       const health = resourceHealth(this.state, this.world, id) - hits;
       this.state.resources[id] = {
         health,
-        respawnAt: health <= 0 ? this.state.time + def.respawn : 0,
+        respawnAt:
+          health <= 0 ? this.state.time + def.respawn * this.state.tuning.resourceRespawn : 0,
       };
       p.cooldown = def.health > 1 ? 0.55 : 0.25;
-      p.milestones.gather += def.yield * hits;
-      return this.event('gather', p, `+${def.yield * hits} ${ITEMS[def.item].name}`);
+      p.milestones.gather += def.yield * hits * this.state.tuning.gatherYield;
+      return this.event(
+        'gather',
+        p,
+        `+${def.yield * hits * this.state.tuning.gatherYield} ${ITEMS[def.item].name}`,
+      );
     }
     const animal = this.state.animals.find((a) => a.id === id && a.health > 0);
     if (animal) {
-      if (!this.inReach(p, animal)) return fail('The boar is out of reach.');
+      const species = WILDLIFE[animal.species];
+      if (!this.inReach(p, animal)) return fail(`${species.name} is out of reach.`);
       animal.health = Math.max(0, animal.health - (p.equipped === 'hatchet' ? 30 : 15));
       p.cooldown = 0.6;
       if (animal.health <= 0) {
-        animal.respawnAt = this.state.time + 360;
+        animal.respawnAt = this.state.time + this.state.tuning.wildlifeRespawn;
         this.state.bags.push({
           id: `bag${this.state.nextId++}`,
           owner: '',
           x: animal.x,
           y: animal.y,
           z: animal.z,
-          inventory: { meat: 3, fiber: 2 },
+          inventory: { ...species.loot },
           expiresAt: this.state.time + 600,
         });
       }
       return this.event(
         'damage',
         p,
-        animal.health > 0 ? 'Boar hit.' : 'Boar down. Collect its supplies.',
+        animal.health > 0 ? `${species.name} hit.` : `${species.name} down. Collect its supplies.`,
       );
     }
     const bagIndex = this.state.bags.findIndex((b) => b.id === id);
@@ -202,6 +230,7 @@ export class Simulation {
       throw new Error('Simulation requires a bounded fixed step.');
     this.state.tick++;
     this.state.time += dt;
+    stepEnvironment(this.state.environment, this.state.tuning, this.world.hash, dt);
     const activePlayers = Object.values(this.state.players).filter(
       (p) => !activeIds || activeIds.has(p.id),
     );
@@ -209,68 +238,30 @@ export class Simulation {
       if (p.health <= 0) continue;
       p.cooldown = Math.max(0, p.cooldown - dt);
       stepPlayer(this.state, this.world, p, dt);
-      p.hunger = Math.max(0, p.hunger - dt * 0.025);
-      p.thirst = Math.max(0, p.thirst - dt * (p.input.sprint ? 0.055 : 0.035));
-      if (p.hunger <= 0 || p.thirst <= 0) p.health = Math.max(0, p.health - dt * 2);
+      p.hunger = Math.max(0, p.hunger - dt * 0.025 * this.state.tuning.needsRate);
+      p.thirst = Math.max(
+        0,
+        p.thirst - dt * (p.input.sprint ? 0.055 : 0.035) * this.state.tuning.needsRate,
+      );
+      if (p.hunger <= 0 || p.thirst <= 0)
+        p.health = Math.max(0, p.health - dt * 2 * this.state.tuning.damage);
       else if (
         p.hunger > 30 &&
         p.thirst > 30 &&
         this.state.buildings.some((b) => b.kind === 'campfire' && distance2(p.position, b) < 5)
       )
         p.health = Math.min(100, p.health + dt * 0.8);
+      p.oxygen = clamp(p.oxygen + (p.position.y + 1.65 < -0.12 ? -7 : 25) * dt, 0, 100);
+      if (p.oxygen === 0) p.health = Math.max(0, p.health - dt * 6 * this.state.tuning.damage);
+      if (p.dev.invincible) p.health = 100;
       if (p.health <= 0) this.die(p);
     }
-    for (const animal of this.state.animals) {
-      if (animal.health <= 0) {
-        if (animal.respawnAt <= this.state.time) {
-          animal.health = 60;
-          animal.x = animal.homeX;
-          animal.z = animal.homeZ;
-        } else continue;
-      }
-      animal.cooldown = Math.max(0, animal.cooldown - dt);
-      const target = activePlayers
-        .filter(
-          (p) =>
-            p.health > 0 &&
-            distance2(p.position, animal) < 12 &&
-            distance2(p.position, { x: animal.homeX, z: animal.homeZ }) < 28,
-        )
-        .sort((a, b) => distance2(a.position, animal) - distance2(b.position, animal))[0];
-      const angle = this.state.time * 0.12 + animal.homeX;
-      const tx = target?.position.x ?? animal.homeX + Math.sin(angle) * 5;
-      const tz = target?.position.z ?? animal.homeZ + Math.cos(angle) * 5;
-      const dist = Math.hypot(tx - animal.x, tz - animal.z);
-      animal.yaw = Math.atan2(tx - animal.x, tz - animal.z);
-      if (dist > (target ? 1.5 : 0.4)) {
-        const speed = target ? 3.5 : 0.65;
-        const x = animal.x + ((tx - animal.x) / dist) * speed * dt,
-          z = animal.z + ((tz - animal.z) / dist) * speed * dt;
-        const terrain = terrainHeight(x, z, this.world.hash);
-        const ground = groundHeight(this.state, this.world, x, z);
-        if (
-          terrain > 1 &&
-          ground - terrain < 0.2 &&
-          !this.state.buildings.some((b) => b.kind === 'wall' && distance2(b, { x, z }) < 2.3)
-        ) {
-          animal.x = x;
-          animal.z = z;
-        }
-      }
-      animal.y = terrainHeight(animal.x, animal.z, this.world.hash);
-      if (
-        target &&
-        dist < 2 &&
-        Math.abs(target.position.y - animal.y) < 1.8 &&
-        animal.cooldown <= 0 &&
-        lineOfSight(this.state, target, animal.x, animal.y + 0.5, animal.z)
-      ) {
-        target.health = Math.max(0, target.health - 12);
-        animal.cooldown = 1.4;
-        this.event('damage', target, 'A boar hit you. Fight or find higher ground.');
-        if (target.health <= 0) this.die(target);
-      }
-    }
+    stepWildlife(this.state, this.world, activePlayers, dt, (p, damage, name) => {
+      if (p.dev.invincible) return;
+      p.health = Math.max(0, p.health - damage);
+      this.event('damage', p, `${name} hit you. Fight or find higher ground.`);
+      if (p.health <= 0) this.die(p);
+    });
     if (this.state.tick % 30 === 0) {
       for (const [id, resource] of Object.entries(this.state.resources)) {
         if (resource.health <= 0 && resource.respawnAt <= this.state.time) {

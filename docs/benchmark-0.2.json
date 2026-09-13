@@ -1,0 +1,101 @@
+{
+  "recordedAt": "2026-09-13T01:33:02.426Z",
+  "note": "Current-machine browser measurement. Mobile viewport is emulation, not physical S25 evidence.",
+  "scenes": [
+    {
+      "quality": "balanced",
+      "name": "balanced-camp",
+      "enhanced": false,
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "buildings": 100,
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "medianFps": 144,
+      "lowestOneSecondFps": 144,
+      "maxDrawCalls": 245,
+      "maxTriangles": 153178,
+      "geometries": [122, 122],
+      "textures": [4, 4],
+      "pixelRatio": 1,
+      "errors": []
+    },
+    {
+      "quality": "mobile",
+      "name": "mobile-camp",
+      "enhanced": false,
+      "viewport": {
+        "width": 915,
+        "height": 412
+      },
+      "buildings": 100,
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "medianFps": 144,
+      "lowestOneSecondFps": 144,
+      "maxDrawCalls": 95,
+      "maxTriangles": 75908,
+      "geometries": [54, 54],
+      "textures": [2, 2],
+      "pixelRatio": 1.15,
+      "errors": []
+    },
+    {
+      "quality": "low",
+      "name": "low-camp",
+      "enhanced": false,
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "buildings": 100,
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "medianFps": 144,
+      "lowestOneSecondFps": 144,
+      "maxDrawCalls": 88,
+      "maxTriangles": 66834,
+      "geometries": [52, 52],
+      "textures": [2, 2],
+      "pixelRatio": 0.8,
+      "errors": []
+    },
+    {
+      "quality": "high",
+      "name": "enhanced-camp",
+      "enhanced": true,
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "buildings": 100,
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "medianFps": 144,
+      "lowestOneSecondFps": 144,
+      "maxDrawCalls": 671,
+      "maxTriangles": 467053,
+      "geometries": [131, 131],
+      "textures": [24, 24],
+      "pixelRatio": 1,
+      "errors": []
+    },
+    {
+      "quality": "high",
+      "name": "storm-coast",
+      "enhanced": true,
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "buildings": 100,
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "medianFps": 144,
+      "lowestOneSecondFps": 144,
+      "maxDrawCalls": 677,
+      "maxTriangles": 522701,
+      "geometries": [121, 123],
+      "textures": [24, 24],
+      "pixelRatio": 1,
+      "errors": []
+    }
+  ]
+}

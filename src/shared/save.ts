@@ -1,10 +1,12 @@
 import { z } from 'zod';
-import { BUILDING_IDS, ITEM_IDS } from './content';
+import { BUILDING_IDS, ITEM_IDS, SPECIES_IDS } from './content';
 import { inventoryWeight } from './inventory';
 import { moveSchema } from './protocol';
 import { idleInput } from './state';
 import type { GameState } from './state';
-import { WORLD_VERSION } from './world';
+import { WORLD_VERSION, generateWorld } from './world';
+import { createEnvironment, DEFAULT_TUNING, environmentSchema, tuningSchema } from './environment';
+import { populateWildlife, MAX_ANIMALS } from './wildlife';
 
 export const MAX_SAVE_BYTES = 2_000_000;
 const finite = z.number().finite();
@@ -36,6 +38,7 @@ const playerSchema = z
     hunger: stat,
     thirst: stat,
     stamina: stat,
+    oxygen: stat.default(100),
     inventory: inventorySchema,
     equipped: z.enum(ITEM_IDS),
     cooldown: finite.min(0).max(10),
@@ -46,11 +49,17 @@ const playerSchema = z
     respawn: position,
     deaths: positive.int(),
     input: moveSchema,
+    dev: z
+      .object({ invincible: z.boolean(), flight: z.boolean(), freeBuild: z.boolean() })
+      .strict(),
   })
   .strict();
 export const stateSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
+    environment: environmentSchema,
+    tuning: tuningSchema,
+    sandbox: z.boolean(),
     worldVersion: z.literal(WORLD_VERSION),
     seed: z
       .string()
@@ -105,14 +114,37 @@ export const stateSchema = z
             x: position.shape.x,
             y: position.shape.y,
             z: position.shape.z,
+            species: z.enum(SPECIES_IDS),
+            behavior: z.enum(['roam', 'flee', 'chase']),
             homeX: position.shape.x,
             homeZ: position.shape.z,
             yaw: finite,
-            health: finite.min(0).max(60),
+            health: finite.min(0).max(80),
             cooldown: finite.min(0).max(5),
             respawnAt: positive,
           })
           .strict(),
+      )
+      .max(MAX_ANIMALS),
+  })
+  .strict();
+
+const legacyStateSchema = stateSchema
+  .omit({ environment: true, tuning: true, sandbox: true })
+  .extend({
+    version: z.literal(1),
+    players: z
+      .record(id, playerSchema.omit({ dev: true, oxygen: true }))
+      .refine(
+        (p) =>
+          Object.keys(p).length <= 512 &&
+          Object.entries(p).every(([key, value]) => key === value.id),
+      ),
+    animals: z
+      .array(
+        stateSchema.shape.animals.element
+          .omit({ species: true, behavior: true })
+          .extend({ health: finite.min(0).max(60) }),
       )
       .max(64),
   })
@@ -120,7 +152,7 @@ export const stateSchema = z
 
 export interface SaveFile {
   format: 'rbb-save';
-  version: 1;
+  version: 2;
   savedAt: string;
   playerId: string;
   state: GameState;
@@ -128,21 +160,49 @@ export interface SaveFile {
 const saveSchema = z
   .object({
     format: z.literal('rbb-save'),
-    version: z.literal(1),
+    version: z.union([z.literal(1), z.literal(2)]),
     savedAt: z.iso.datetime(),
     playerId: id,
-    state: stateSchema,
+    state: z.unknown(),
   })
-  .strict()
-  .refine((s) => !!s.state.players[s.playerId], 'Save has no local player');
+  .strict();
 
 export function parseState(value: unknown): GameState {
-  const state = stateSchema.parse(value);
+  const legacy =
+    typeof value === 'object' && value !== null && 'version' in value && value.version === 1
+      ? legacyStateSchema.parse(value)
+      : null;
+  const migrated = legacy
+    ? {
+        ...legacy,
+        version: 2,
+        environment: createEnvironment((legacy.time / 1200) * 24 + 6),
+        tuning: { ...DEFAULT_TUNING },
+        sandbox: false,
+        players: Object.fromEntries(
+          Object.entries(legacy.players).map(([key, p]) => [
+            key,
+            { ...p, dev: { invincible: false, flight: false, freeBuild: false }, oxygen: 100 },
+          ]),
+        ),
+        animals: [
+          ...legacy.animals.map((a) => ({ ...a, species: 'boar', behavior: 'roam' })),
+          ...populateWildlife(generateWorld(legacy.seed))
+            .filter((a) => a.species !== 'boar' && !legacy.animals.some((old) => old.id === a.id))
+            .slice(0, MAX_ANIMALS - legacy.animals.length),
+        ],
+      }
+    : value;
+  const state = stateSchema.parse(migrated);
   // Loading must never resume stale held keys, especially across reconnects or tab suspension.
   for (const p of Object.values(state.players)) p.input = idleInput();
-  const ids = [...state.buildings.map((b) => b.id), ...state.bags.map((b) => b.id)];
+  const ids = [
+    ...state.buildings.map((b) => b.id),
+    ...state.bags.map((b) => b.id),
+    ...state.animals.map((a) => a.id),
+  ];
   if (new Set(ids).size !== ids.length) throw new Error('Duplicate entity IDs in save');
-  if (ids.some((entityId) => Number(entityId.replace(/^(?:bag|b)/, '')) >= state.nextId))
+  if (ids.some((entityId) => Number(entityId.replace(/^(?:bag|b|a)/, '')) >= state.nextId))
     throw new Error('Invalid entity sequence in save');
   return state;
 }
@@ -155,13 +215,23 @@ export function parseSave(text: string): SaveFile {
     throw new Error(
       'This save is damaged or uses an unsupported version. Your current expedition was not changed.',
     );
-  return { ...parsed.data, state: parseState(parsed.data.state) };
+  const rawState = parsed.data.state;
+  if (
+    !rawState ||
+    typeof rawState !== 'object' ||
+    !('version' in rawState) ||
+    rawState.version !== parsed.data.version
+  )
+    throw new Error('Save envelope and state versions disagree.');
+  const state = parseState(rawState);
+  if (!state.players[parsed.data.playerId]) throw new Error('Save has no local player.');
+  return { ...parsed.data, version: 2, state };
 }
 
 export function encodeSave(state: GameState, playerId: string): string {
   return JSON.stringify({
     format: 'rbb-save',
-    version: 1,
+    version: 2,
     savedAt: new Date().toISOString(),
     playerId,
     state,

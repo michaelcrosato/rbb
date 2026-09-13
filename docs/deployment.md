@@ -25,8 +25,13 @@ npm run start:server
 | `DATA_DIR`        | `./data`                      | Persistent directory containing SQLite and WAL files                       |
 | `WORLD_SEED`      | `quiet-frontier` for a new DB | Existing worlds reject a conflicting seed                                  |
 | `ALLOWED_ORIGINS` | Local development origins     | Comma-separated exact browser origins; required with `NODE_ENV=production` |
+| `ALLOW_DEV_TOOLS` | `false`                       | Exactly `true` enables shared developer mutations for every joined tester  |
 
 The Node process reads environment variables directly. It does not automatically load `.env` files. Set shell/service variables, or use Node's `--env-file` flag with a task-specific file if needed. Compose reads `.env` for its variable substitution. No credentials are needed to start the server.
+
+For a trusted developer world, set `ALLOW_DEV_TOOLS=true` and use a separate `DATA_DIR`, for example `./data-playtest`. This is a whole-server capability, not an authenticated administrator role: every joined client can change tuning, travel, spawn or remove entities and grant items through the visible tools. The world is marked as a sandbox after mutation. A normal server refuses a saved sandbox world; restore a normal backup or explicitly enable test mode. Device-local graphics controls remain available when developer mutations are disabled.
+
+Version 0.2 uses network protocol 2. Upgrade the static client and dedicated server together. Save v1 migrates to v2 while preserving the existing island and progress; take the normal stopped-server backup before upgrading a persistent deployment.
 
 `docker compose up --build -d` starts a world using the persistent `world-data` volume. Put a TLS reverse proxy in front of port 8787. Configure WebSocket upgrades, a sufficiently long idle timeout, and sensible connection limits. Only trust your own reverse proxy if adding forwarded-IP handling; the current limiter uses the TCP peer address and intentionally ignores user-supplied forwarded headers. Behind a proxy this groups users into one connection bucket; tune or extend trusted-proxy handling before a larger public launch.
 

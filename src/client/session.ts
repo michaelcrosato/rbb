@@ -11,6 +11,7 @@ import type { WorldDefinition } from '../shared/world';
 
 export interface Session {
   mode: 'solo' | 'online';
+  devAllowed: boolean;
   state: GameState;
   world: WorldDefinition;
   playerId: string;
@@ -25,6 +26,7 @@ export interface Session {
 
 export class LocalSession implements Session {
   readonly mode = 'solo' as const;
+  readonly devAllowed = true;
   readonly world: WorldDefinition;
   readonly state: GameState;
   readonly sim: Simulation;
@@ -38,12 +40,15 @@ export class LocalSession implements Session {
     this.playerId = playerId;
     this.world = generateWorld(seed);
     this.state = state ?? createState(this.world);
-    this.sim = new Simulation(this.world, this.state);
+    this.sim = new Simulation(this.world, this.state, true);
     this.sim.addPlayer(this.playerId, 'Wanderer');
   }
   command(command: Command): void {
     const result = this.sim.command(this.playerId, command);
-    if (command.type !== 'move' && (!result.ok || command.type === 'respawn'))
+    if (
+      command.type !== 'move' &&
+      (!result.ok || command.type === 'respawn' || command.type === 'dev')
+    )
       this.onResult(result);
     const events = this.sim.drainEvents();
     if (events.length) this.onEvents(events);
@@ -74,6 +79,10 @@ const publicPlayer = stateSchema.shape.players.valueType.pick({
   equipped: true,
 });
 const snapshotSchema = z.object({
+  environment: stateSchema.shape.environment,
+  tuning: stateSchema.shape.tuning,
+  sandbox: z.boolean(),
+  devAllowed: z.boolean(),
   tick: stateSchema.shape.tick,
   time: stateSchema.shape.time,
   seed: stateSchema.shape.seed,
@@ -105,6 +114,7 @@ export function normalizeServerUrl(value: string): string {
 /** Commands only. The server owns movement, inventory, world mutations, and time. */
 export class RemoteSession implements Session {
   readonly mode = 'online' as const;
+  devAllowed = false;
   world: WorldDefinition;
   state: GameState;
   playerId = '';
@@ -250,6 +260,10 @@ export class RemoteSession implements Session {
       this.world = generateWorld(snapshot.seed);
       this.state = createState(this.world);
     }
+    this.devAllowed = snapshot.devAllowed;
+    this.state.environment = snapshot.environment;
+    this.state.tuning = snapshot.tuning;
+    this.state.sandbox = snapshot.sandbox;
     this.state.tick = snapshot.tick;
     this.state.time = snapshot.time;
     this.state.players = { [snapshot.self.id]: snapshot.self };
@@ -311,4 +325,4 @@ export class RemoteSession implements Session {
 }
 
 export const getSnapshot = (session: Session): Snapshot =>
-  snapshotFor(session.state, session.playerId);
+  snapshotFor(session.state, session.playerId, session.devAllowed);

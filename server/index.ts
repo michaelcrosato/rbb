@@ -10,6 +10,7 @@ if (process.env.NODE_ENV === 'production' && !origins?.length)
   throw new Error('Set ALLOWED_ORIGINS to the exact HTTPS client origins in production.');
 const world = await startWorldServer({
   port,
+  allowDevTools: process.env.ALLOW_DEV_TOOLS === 'true',
   host: process.env.HOST,
   dataDir: process.env.DATA_DIR,
   seed: process.env.WORLD_SEED,

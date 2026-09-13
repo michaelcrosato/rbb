@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { graphicsSchema, DEFAULT_GRAPHICS, effectiveGraphics } from './render/settings';
+import { DeveloperControls } from './developer';
 import { buildCandidate, validateBuild } from '../shared/building';
 import type { BuildingKind, ItemId, RecipeId } from '../shared/content';
 import { parseSave, encodeSave } from '../shared/save';
@@ -17,11 +19,12 @@ import { HOTBAR, UI } from './ui/ui';
 import type { Panel } from './ui/ui';
 
 const settingsSchema = z.object({
-  quality: z.enum(['auto', 'high', 'balanced', 'mobile']),
+  quality: z.enum(['auto', 'high', 'balanced', 'mobile', 'low']),
   sensitivity: z.number().min(0.3).max(2.5),
   volume: z.number().min(0).max(1),
   fov: z.number().min(55).max(100),
   showStats: z.boolean(),
+  graphics: graphicsSchema.default(DEFAULT_GRAPHICS),
 });
 const seedSchema = z
   .string()
@@ -36,6 +39,7 @@ export class Game {
   readonly input: Input;
   readonly audio = new GameAudio();
   readonly saves: SaveStore;
+  readonly developer: DeveloperControls;
   session: Session | null = null;
   private settings: RenderSettings = { ...DEFAULT_SETTINGS };
   private saved: SaveFile | null = null;
@@ -84,6 +88,30 @@ export class Game {
         this.ui.toast(e instanceof Error ? e.message : 'That action could not be completed.', true),
       );
     };
+    this.developer = new DeveloperControls({
+      root,
+      session: () => this.session,
+      settings: () => this.settings,
+      graphics: (graphics) => {
+        this.settings = { ...this.settings, graphics };
+        this.renderer.applySettings(this.settings);
+        try {
+          localStorage.setItem('rbb.settings.v1', JSON.stringify(this.settings));
+        } catch {}
+      },
+      look: (yaw, pitch) => {
+        this.input.yaw = yaw;
+        this.input.pitch = pitch;
+      },
+      notify: (message, error) => this.ui.toast(message, error),
+      restore: async (save) => {
+        await this.attach(new LocalSession(save.state.seed, save.state, save.playerId));
+        this.save();
+        this.openPanel('developer');
+        this.ui.toast('Checkpoint restored.');
+      },
+      download: (text, filename) => this.download(text, filename),
+    });
     const signal = this.abort.signal;
     document.addEventListener(
       'pointerlockchange',
@@ -157,6 +185,7 @@ export class Game {
       if (this.session.mode === 'solo') this.save();
     }
     this.ui.showPanel(panel, this.player(), this.settings);
+    if (panel === 'developer') this.developer.render();
     if (document.pointerLockElement) document.exitPointerLock();
   }
   private resume(): void {
@@ -171,6 +200,13 @@ export class Game {
   }
 
   private inputAction(action: InputAction, value?: number): void {
+    if (action === 'developer') {
+      if (this.session) {
+        if (this.ui.panel === 'developer') this.resume();
+        else this.openPanel('developer');
+      }
+      return;
+    }
     if (action === 'pause') {
       if (this.ui.panel) this.resume();
       else if (this.session) this.openPanel('pause');
@@ -194,6 +230,14 @@ export class Game {
   }
 
   private async action(action: string, value?: string): Promise<void> {
+    if (action.startsWith('dev-')) {
+      await this.developer.action(action.slice(4), value);
+      return;
+    }
+    if (action === 'developer' && this.session) {
+      this.openPanel('developer');
+      return;
+    }
     if (action === 'start') {
       if (this.saved) this.openPanel('new');
       else await this.startNew();
@@ -211,7 +255,20 @@ export class Game {
       this.openPanel(action as Panel);
     else if (action === 'apply-settings') {
       const root = this.ui.root;
+      const graphics = { ...this.settings.graphics };
+      root.querySelectorAll<HTMLInputElement>('[data-graphics]').forEach((input) => {
+        Object.assign(graphics, {
+          [input.dataset.graphics!]:
+            input.type === 'checkbox' ? input.checked : Number(input.value),
+        });
+      });
+      const validation = graphicsSchema.safeParse(graphics);
+      if (!validation.success) {
+        this.ui.toast('Check rendering values against their allowed ranges.', true);
+        return;
+      }
       this.settings = settingsSchema.parse({
+        graphics: validation.data,
         quality: (root.querySelector('#quality') as HTMLSelectElement).value,
         fov: Number((root.querySelector('#fov') as HTMLInputElement).value),
         sensitivity: Number((root.querySelector('#sensitivity') as HTMLInputElement).value),
@@ -257,6 +314,7 @@ export class Game {
       this.save();
       this.session?.close();
       this.session = null;
+      this.audio.environment(0, 0, 0, false);
       this.input.active = false;
       this.input.reset();
       this.cancelBuild();
@@ -295,6 +353,7 @@ export class Game {
   private async attach(session: Session): Promise<void> {
     this.session?.close();
     this.session = session;
+    this.developer.attach();
     this.renderer.setWorld(session.world);
     this.syncedTick = -1;
     this.cancelBuild();
@@ -303,6 +362,7 @@ export class Game {
     this.input.pitch = player.pitch;
     session.onResult = (result) => {
       this.ui.toast(result.message, !result.ok);
+      if (this.ui.panel === 'developer') this.developer.render();
       if (result.ok && this.ui.panel === 'death' && this.player()!.health > 0) this.resume();
     };
     session.onEvents = (events) =>
@@ -395,11 +455,11 @@ export class Game {
       );
     }
   }
-  private download(text: string): void {
+  private download(text: string, filename?: string): void {
     const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `rbb-expedition-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = filename ?? `rbb-expedition-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
@@ -425,17 +485,33 @@ export class Game {
     this.previousFrame = time;
     const session = this.session;
     if (session) {
-      const paused = !!this.ui.panel;
-      session.command({ type: 'move', input: this.input.sample() });
+      const paused =
+        !!this.ui.panel &&
+        (this.ui.panel !== 'developer' || (session.mode === 'solo' && this.developer.paused));
+      session.command({ type: 'move', input: this.input.sample(this.player()?.dev.flight) });
       session.update(dt, paused);
       const p = this.player()!;
-      if (p.health <= 0 && this.ui.panel !== 'death') this.openPanel('death');
+      if (p.health <= 0 && this.ui.panel !== 'death' && this.ui.panel !== 'developer')
+        this.openPanel('death');
       if (p.health > 0 && this.ui.panel === 'death') this.resume();
       if (session.state.tick !== this.syncedTick) {
         this.renderer.sync(getSnapshot(session));
         this.syncedTick = session.state.tick;
       }
-      this.renderer.render(time, p, this.input.yaw, this.input.pitch, session.state.time, !paused);
+      this.renderer.render(
+        time,
+        p,
+        this.input.yaw,
+        this.input.pitch,
+        session.state.time,
+        !this.ui.panel,
+      );
+      this.audio.environment(
+        this.renderer.atmosphere.last.weather.wind * session.state.tuning.windStrength,
+        this.renderer.atmosphere.last.weather.rain,
+        this.renderer.atmosphere.flash,
+        !document.hidden && !paused,
+      );
       this.target = this.buildKind || paused ? null : this.renderer.findTarget(session.state, p);
       if (this.buildKind && !paused) {
         // A short, explicit reach makes placement usable with mouse, keyboard and touch.
@@ -457,6 +533,7 @@ export class Game {
       this.saveTime += paused ? 0 : dt;
       if (this.uiTime > 0.1) {
         this.ui.update(session.state, p, session.world, this.input.yaw, this.target, session.mode);
+        if (this.ui.panel === 'developer') this.developer.update();
         this.uiTime = 0;
         if (session.mode === 'online') this.ui.setStatus(`${session.status} · ${session.ping} ms`);
       }
@@ -477,7 +554,15 @@ export class Game {
   diagnostics(): unknown {
     const p = this.player();
     return structuredClone({
-      version: '0.1.0',
+      version: '0.2.0',
+      environment: this.session?.state.environment,
+      tuning: this.session?.state.tuning,
+      animals: this.session?.state.animals,
+      sandbox: this.session?.state.sandbox,
+      celestial: this.renderer.atmosphere.last,
+      devAllowed: this.session?.devAllowed,
+      graphics: this.settings.graphics,
+      effectiveGraphics: effectiveGraphics(this.settings.graphics, this.renderer.stats.quality),
       renderer: this.renderer.stats,
       panel: this.ui.panel,
       mode: this.session?.mode,
@@ -502,6 +587,7 @@ export class Game {
     this.abort.abort();
     this.save();
     this.session?.close();
+    this.developer.dispose();
     this.input.dispose();
     this.audio.dispose();
     this.renderer.dispose();

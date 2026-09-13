@@ -17,13 +17,14 @@ const servers: RunningServer[] = [],
   directories: string[] = [],
   sockets: WebSocket[] = [];
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-async function setup(dataDir?: string): Promise<RunningServer> {
+async function setup(dataDir?: string, allowDevTools = false): Promise<RunningServer> {
   if (!dataDir) {
     dataDir = await mkdtemp(join(tmpdir(), 'rbb-test-'));
     directories.push(dataDir);
   }
   const server = await startWorldServer({
     port: 0,
+    allowDevTools,
     host: '127.0.0.1',
     dataDir,
     log: () => {},
@@ -67,7 +68,7 @@ async function connect(server: RunningServer): Promise<Peer> {
 }
 async function joinWorld(server: RunningServer, token?: string) {
   const peer = await connect(server);
-  peer.send({ type: 'hello', protocol: 1, name: 'Tester', ...(token ? { token } : {}) });
+  peer.send({ type: 'hello', protocol: 2, name: 'Tester', ...(token ? { token } : {}) });
   const welcome = await peer.wait('welcome');
   return { peer, welcome };
 }
@@ -94,6 +95,29 @@ describe('authoritative world server', () => {
     expect((await a.peer.wait('result')).result.ok).toBe(false);
     a.peer.send({ type: 'command', seq: 2, command: { type: 'interact', target: 'starter-tree' } });
     expect((await a.peer.wait('result')).result.ok).toBe(false);
+  });
+  it('advertises developer capability, blocks ordinary-server cheats and shares enabled environment changes', async () => {
+    const normal = await setup(),
+      a = await joinWorld(normal);
+    expect(a.welcome.snapshot.devAllowed).toBe(false);
+    a.peer.send({ type: 'command', seq: 1, command: { type: 'dev', request: { action: 'kit' } } });
+    expect((await a.peer.wait('result')).result.ok).toBe(false);
+    const sandbox = await setup(undefined, true),
+      b = await joinWorld(sandbox),
+      observer = await joinWorld(sandbox);
+    expect(b.welcome.snapshot.devAllowed).toBe(true);
+    b.peer.send({
+      type: 'command',
+      seq: 1,
+      command: { type: 'dev', request: { action: 'weather', weather: 'storm', instant: true } },
+    });
+    expect((await b.peer.wait('result')).result.ok).toBe(true);
+    const snapshot = (
+      await observer.peer.wait('snapshot', (m) => m.snapshot.environment.weather === 'storm')
+    ).snapshot;
+    expect(snapshot.sandbox).toBe(true);
+    expect(snapshot.environment.duration).toBe(0);
+    expect(snapshot.animals.some((a) => a.species === 'dolphin')).toBe(true);
   });
   it('owns movement, rejects replay, and stops stale held input', async () => {
     const server = await setup(),
@@ -147,10 +171,10 @@ describe('authoritative world server', () => {
     const server = await setup(),
       { welcome } = await joinWorld(server);
     const duplicate = await connect(server);
-    duplicate.send({ type: 'hello', protocol: 1, name: 'Tester', token: welcome.token });
+    duplicate.send({ type: 'hello', protocol: 2, name: 'Tester', token: welcome.token });
     expect((await duplicate.wait('error')).message).toContain('already connected');
     const fake = await connect(server);
-    fake.send({ type: 'hello', protocol: 1, name: 'Tester', token: 'a'.repeat(64) });
+    fake.send({ type: 'hello', protocol: 2, name: 'Tester', token: 'a'.repeat(64) });
     expect((await fake.wait('error')).message).toContain('no longer valid');
     const hostile = new WebSocket(`ws://127.0.0.1:${server.port}`, {
       origin: 'https://untrusted.example',

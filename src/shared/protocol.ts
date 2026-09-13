@@ -1,8 +1,9 @@
 import { z } from 'zod';
+import { developerSchema } from './developer';
 import { BUILDING_IDS, ITEM_IDS, RECIPE_IDS } from './content';
 import type { GameEvent, GameState, PlayerState, Result } from './state';
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 export const moveSchema = z
   .object({
     forward: z.number().finite().min(-1).max(1),
@@ -15,9 +16,11 @@ export const moveSchema = z
     pitch: z.number().finite().min(-1.5).max(1.5),
     sprint: z.boolean(),
     jump: z.boolean(),
+    dive: z.boolean().default(false),
   })
   .strict();
 export const commandSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('dev'), request: developerSchema }).strict(),
   z.object({ type: z.literal('move'), input: moveSchema }).strict(),
   z.object({ type: z.literal('equip'), item: z.enum(ITEM_IDS) }).strict(),
   z.object({ type: z.literal('interact'), target: z.string().min(1).max(64) }).strict(),
@@ -67,6 +70,10 @@ export type PublicPlayer = Pick<
   'id' | 'name' | 'position' | 'yaw' | 'health' | 'equipped'
 >;
 export interface Snapshot {
+  environment: GameState['environment'];
+  tuning: GameState['tuning'];
+  sandbox: boolean;
+  devAllowed: boolean;
   tick: number;
   time: number;
   seed: string;
@@ -85,8 +92,12 @@ export type ServerMessage =
   | { type: 'error'; message: string }
   | { type: 'pong'; at: number };
 
-export function snapshotFor(state: GameState, id: string): Snapshot {
+export function snapshotFor(state: GameState, id: string, devAllowed = false): Snapshot {
   return {
+    environment: state.environment,
+    tuning: state.tuning,
+    sandbox: state.sandbox,
+    devAllowed,
     tick: state.tick,
     time: state.time,
     seed: state.seed,

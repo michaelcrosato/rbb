@@ -1,14 +1,14 @@
 import * as THREE from 'three';
-import { BALANCE, RESOURCE_TYPES } from '../../shared/content';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { BALANCE, RESOURCE_TYPES, WILDLIFE } from '../../shared/content';
 import type { BuildingKind, ItemId, ResourceKind } from '../../shared/content';
-import { clamp, random } from '../../shared/math';
+import { random } from '../../shared/math';
 import type { Snapshot } from '../../shared/protocol';
 import { resourceIsActive } from '../../shared/state';
 import type { Building, GameState, PlayerState } from '../../shared/state';
 import { nearbyResources } from '../../shared/world';
 import type { Resource, WorldDefinition } from '../../shared/world';
 import {
-  boarModel,
   buildingModel,
   disposeObject,
   material,
@@ -19,14 +19,24 @@ import {
 } from './models';
 import { createTerrain } from './terrain';
 import { BuildingBatches } from './buildings';
+import { Atmosphere } from './atmosphere';
+import { Ocean, SurfaceEffects } from './surfaces';
+import { PostEffects } from './post';
+import { DEFAULT_GRAPHICS, effectiveGraphics } from './settings';
+import type { GraphicsSettings } from './settings';
+import { animateWildlife, wildlifeModel } from './wildlife';
+import { createEnvironment, DEFAULT_TUNING } from '../../shared/environment';
+import type { Environment, Tuning } from '../../shared/environment';
+import { AmbientParticles } from './motes';
 
-export type Quality = 'auto' | 'high' | 'balanced' | 'mobile';
+export type Quality = 'auto' | 'high' | 'balanced' | 'mobile' | 'low';
 export interface RenderSettings {
   quality: Quality;
   sensitivity: number;
   volume: number;
   fov: number;
   showStats: boolean;
+  graphics: GraphicsSettings;
 }
 export const DEFAULT_SETTINGS: RenderSettings = {
   quality: 'auto',
@@ -34,6 +44,7 @@ export const DEFAULT_SETTINGS: RenderSettings = {
   volume: 0.35,
   fov: 75,
   showStats: false,
+  graphics: { ...DEFAULT_GRAPHICS },
 };
 interface InstanceRef {
   mesh: THREE.InstancedMesh;
@@ -62,6 +73,9 @@ export class WorldRenderer {
     drawCalls: 0,
     triangles: 0,
     geometries: 0,
+    textures: 0,
+    programs: 0,
+    frameMs: 16.67,
     pixelRatio: 1,
     quality: 'balanced',
   };
@@ -76,7 +90,30 @@ export class WorldRenderer {
   private readonly actors = new Map<string, THREE.Group>();
   private readonly loot = new Map<string, THREE.Mesh>();
   private readonly clouds = new THREE.Group();
-  private readonly water: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  readonly atmosphere: Atmosphere;
+  private readonly ocean: Ocean;
+  private readonly surfaces = new SurfaceEffects();
+  private readonly post: PostEffects;
+  private readonly motes = new AmbientParticles();
+  private graphics = { ...DEFAULT_GRAPHICS };
+  private readonly campLights = Array.from(
+    { length: 4 },
+    () => new THREE.PointLight('#ffae55', 0, 13, 2),
+  );
+  private environment: Environment = createEnvironment();
+  private tuning: Tuning = { ...DEFAULT_TUNING };
+  private camps: Snapshot['buildings'] = [];
+  private readonly debugGroup = new THREE.Group();
+  private readonly debugBounds = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(),
+    new THREE.MeshBasicMaterial({
+      color: '#efc55e',
+      wireframe: true,
+      transparent: true,
+      opacity: 0.55,
+    }),
+    2048,
+  );
   private readonly selection: THREE.Mesh;
   private readonly hand = new THREE.Group();
   private preview: THREE.Group | null = null;
@@ -104,6 +141,7 @@ export class WorldRenderer {
       antialias: true,
       powerPreference: 'high-performance',
     });
+    this.renderer.info.autoReset = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.13;
@@ -119,32 +157,22 @@ export class WorldRenderer {
     this.sun.shadow.camera.top = 60;
     this.sun.shadow.camera.bottom = -60;
     this.sun.shadow.camera.near = 1;
-    this.sun.shadow.camera.far = 260;
+    this.sun.shadow.camera.far = 500;
     this.sun.shadow.normalBias = 0.08;
     this.sun.shadow.bias = -0.00015;
-    this.water = new THREE.Mesh(
-      new THREE.PlaneGeometry(2400, 2400, 1, 1).rotateX(-Math.PI / 2),
-      new THREE.ShaderMaterial({
-        uniforms: {
-          time: { value: 0 },
-          brightness: { value: 1 },
-          fogColor: { value: new THREE.Color('#bad5dc') },
-        },
-        vertexShader:
-          'varying vec3 vWorld; void main(){vec4 p=modelMatrix*vec4(position,1.0);vWorld=p.xyz;gl_Position=projectionMatrix*viewMatrix*p;}',
-        fragmentShader: `uniform float time; uniform float brightness; uniform vec3 fogColor; varying vec3 vWorld;
-        void main(){float wave=sin(vWorld.x*.31+time*.65)*sin(vWorld.z*.26+time*.38);
-        float stripe=pow(max(0.,sin(vWorld.x*.65+vWorld.z*.42+time*.8)),24.)*.16;
-        vec3 col=mix(vec3(.16,.40,.43),vec3(.29,.57,.56),wave*.16+.5)+stripe;
-        float fog=smoothstep(100.,560.,distance(cameraPosition,vWorld));
-        gl_FragColor=vec4(mix(col*brightness,fogColor,fog),1.);
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-        }`,
-      }),
-    );
-    this.water.position.y = 0;
-    this.scene.add(this.water);
+    this.atmosphere = new Atmosphere(this.scene);
+    this.ocean = new Ocean(this.scene);
+    this.post = new PostEffects(this.renderer, this.scene, this.camera, [
+      this.atmosphere.sky,
+      this.atmosphere.stars,
+      this.atmosphere.particles,
+      this.motes,
+      this.hand,
+      this.debugGroup,
+    ]);
+    this.scene.add(...this.campLights, this.debugGroup, this.motes);
+    this.debugBounds.frustumCulled = false;
+    this.debugGroup.add(this.debugBounds);
     this.selection = new THREE.Mesh(
       new THREE.RingGeometry(0.6, 0.67, 24).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({
@@ -175,8 +203,15 @@ export class WorldRenderer {
     this.actors.clear();
     this.loot.clear();
     this.world = world;
+    this.ocean.setWorld(world);
     const terrain = createTerrain(world);
     this.worldGroup.add(terrain);
+    const groundMaterials = new Set<THREE.MeshStandardMaterial>();
+    terrain.traverse((o) => {
+      if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial)
+        groundMaterials.add(o.material);
+    });
+    groundMaterials.forEach((m) => this.surfaces.apply(m));
     for (const object of terrain.children)
       if (object instanceof THREE.Mesh && object.geometry.boundingSphere)
         this.cullables.push({
@@ -201,7 +236,11 @@ export class WorldRenderer {
     for (const resources of buckets.values()) {
       const kind = resources[0].kind;
       if (!geometries.has(kind)) geometries.set(kind, resourceGeometry(kind));
-      const batch = new THREE.InstancedMesh(geometries.get(kind)!, propMaterial, resources.length);
+      const wind = kind === 'tree' || kind === 'fiber' || kind === 'berries';
+      const batchMaterial = propMaterial.clone();
+      this.surfaces.apply(batchMaterial, wind, kind === 'tree' ? 8 : 1.5);
+      const batch = new THREE.InstancedMesh(geometries.get(kind)!, batchMaterial, resources.length);
+      if (wind) batch.customDepthMaterial = this.surfaces.depth(kind === 'tree' ? 8 : 1.5);
       batch.castShadow = kind === 'tree' || kind === 'rock';
       batch.receiveShadow = kind !== 'tree';
       resources.forEach((r, index) => {
@@ -226,12 +265,17 @@ export class WorldRenderer {
       });
       this.worldGroup.add(batch);
     }
+    propMaterial.dispose();
     this.previousTime = 0;
   }
 
   private makeClouds(): void {
     const rng = random(480),
-      geometry = new THREE.IcosahedronGeometry(1, 1),
+      geometry = mergeGeometries([
+        new THREE.IcosahedronGeometry(1, 1),
+        new THREE.IcosahedronGeometry(0.7, 1).translate(0.85, -0.08, 0.1),
+        new THREE.IcosahedronGeometry(0.8, 1).translate(-0.7, 0.1, -0.1),
+      ]),
       cloudMaterial = material('#f0eee0', { roughness: 1 });
     const batch = new THREE.InstancedMesh(geometry, cloudMaterial, 90),
       dummy = new THREE.Object3D();
@@ -252,15 +296,23 @@ export class WorldRenderer {
     const mobile = matchMedia('(pointer: coarse)').matches;
     const tier = settings.quality === 'auto' ? (mobile ? 'mobile' : 'balanced') : settings.quality;
     this.stats.quality = tier;
+    const graphics = (this.graphics = effectiveGraphics(settings.graphics, tier));
+    this.ocean.setQuality(tier);
+    this.ocean.configureReflections(graphics.planarReflections, tier);
     this.resolution =
-      tier === 'high'
-        ? Math.min(devicePixelRatio, 1.75)
-        : tier === 'mobile'
-          ? Math.min(devicePixelRatio, 1.15)
-          : Math.min(devicePixelRatio, 1.4);
+      tier === 'low'
+        ? Math.min(devicePixelRatio, 0.8)
+        : tier === 'high'
+          ? Math.min(devicePixelRatio, 1.75)
+          : tier === 'mobile'
+            ? Math.min(devicePixelRatio, 1.15)
+            : Math.min(devicePixelRatio, 1.4);
+    this.resolution *= graphics.resolutionScale;
     this.maxResolution = this.resolution;
     this.stableSeconds = 0;
-    this.renderer.shadowMap.enabled = tier !== 'mobile';
+    this.renderer.shadowMap.enabled = tier !== 'mobile' && graphics.shadows;
+    this.renderer.toneMappingExposure = graphics.exposure;
+    this.post.configure(graphics);
     this.sun.shadow.mapSize.setScalar(tier === 'high' ? 2048 : 1024);
     this.sun.shadow.map?.dispose();
     this.sun.shadow.map = null;
@@ -277,9 +329,57 @@ export class WorldRenderer {
     this.renderer.setPixelRatio(this.resolution);
     this.renderer.setSize(width, height, false);
     this.stats.pixelRatio = this.resolution;
+    this.post?.resize(width, height, this.resolution);
   }
 
   sync(snapshot: Snapshot): void {
+    this.environment = snapshot.environment;
+    this.tuning = snapshot.tuning;
+    this.camps = snapshot.buildings.filter((b) => b.kind === 'campfire');
+    if (this.settings.graphics.collisionDebug) {
+      const dummy = new THREE.Object3D();
+      let count = 0;
+      const box = (
+        x: number,
+        y: number,
+        z: number,
+        width: number,
+        height: number,
+        depth: number,
+      ) => {
+        if (
+          count >= 2048 ||
+          Math.hypot(x - this.camera.position.x, z - this.camera.position.z) > 65
+        )
+          return;
+        dummy.position.set(x, y + height / 2, z);
+        dummy.scale.set(width, height, depth);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        this.debugBounds.setMatrixAt(count++, dummy.matrix);
+      };
+      for (const r of this.world.resources) {
+        if (
+          RESOURCE_TYPES[r.kind].radius &&
+          (!snapshot.resources[r.id] || snapshot.resources[r.id].health > 0)
+        ) {
+          const radius = RESOURCE_TYPES[r.kind].radius * r.scale + 0.33;
+          box(r.x, r.y, r.z, radius * 2, r.kind === 'tree' ? 8 : 1.5 * r.scale, radius * 2);
+        }
+      }
+      for (const b of snapshot.buildings)
+        if (b.kind === 'wall')
+          box(b.x, b.y, b.z, b.rotation % 2 ? 0.9 : 4.66, 3, b.rotation % 2 ? 4.66 : 0.9);
+      for (const b of snapshot.buildings)
+        if (b.kind === 'foundation') box(b.x, b.y - 0.17, b.z, 4.3, 0.17, 4.3);
+      for (const p of snapshot.players)
+        box(p.position.x, p.position.y, p.position.z, 0.66, 1.7, 0.66);
+      for (const a of snapshot.animals)
+        if (a.health > 0)
+          box(a.x, a.y, a.z, WILDLIFE[a.species].radius * 2, 1.3, WILDLIFE[a.species].radius * 2);
+      this.debugBounds.count = count;
+      this.debugBounds.instanceMatrix.needsUpdate = true;
+    }
     for (const [id, ref] of this.resources) {
       const active = !snapshot.resources[id] || snapshot.resources[id].health > 0;
       if (ref.active !== active) {
@@ -296,13 +396,18 @@ export class WorldRenderer {
     for (const animal of snapshot.animals) {
       if (animal.health <= 0) continue;
       actors.add(animal.id);
-      const object = this.actors.get(animal.id) ?? boarModel();
+      const object = this.actors.get(animal.id) ?? wildlifeModel(animal.species);
       if (!this.actors.has(animal.id)) {
         this.actors.set(animal.id, object);
         this.worldGroup.add(object);
       }
-      object.position.set(animal.x, animal.y, animal.z);
-      object.rotation.y = animal.yaw;
+      const target = new THREE.Vector3(animal.x, animal.y, animal.z);
+      if (!object.userData.target) object.position.copy(target);
+      object.userData.speed = object.userData.target
+        ? target.distanceTo(object.userData.target) * 10
+        : 0;
+      object.userData.target = target;
+      object.userData.yaw = animal.yaw;
     }
     for (const player of snapshot.players) {
       if (player.health <= 0) continue;
@@ -399,7 +504,7 @@ export class WorldRenderer {
           animal.x,
           animal.y + 0.65,
           animal.z,
-          { id: animal.id, name: 'Wild boar', action: 'Attack', kind: 'animal' },
+          { id: animal.id, name: WILDLIFE[animal.species].name, action: 'Attack', kind: 'animal' },
           1,
         );
     for (const bag of state.bags)
@@ -468,7 +573,7 @@ export class WorldRenderer {
     player: PlayerState | null,
     yaw: number,
     pitch: number,
-    worldTime: number,
+    _worldTime: number,
     active: boolean,
   ): void {
     const elapsedFrame = this.previousTime
@@ -502,22 +607,93 @@ export class WorldRenderer {
       this.camera.lookAt(-16, 12, 15);
       this.hand.visible = false;
     }
-    const day = (worldTime % BALANCE.daySeconds) / BALANCE.daySeconds;
-    const light = clamp(Math.sin(day * Math.PI * 2) * 0.65 + 0.52, 0.14, 1);
-    const sky = new THREE.Color('#24394e').lerp(new THREE.Color('#bad5dc'), light);
-    (this.scene.background as THREE.Color).copy(sky);
-    (this.scene.fog as THREE.Fog).color.copy(sky);
-    this.sun.intensity = light * 2.6;
-    this.ambient.intensity = 0.75 + light * 1.35;
-    this.sun.position.set(this.camera.position.x - 65, 110, this.camera.position.z + 30);
-    this.sun.target.position.set(this.camera.position.x, 0, this.camera.position.z);
-    this.water.material.uniforms.time.value = this.elapsed;
-    this.water.material.uniforms.brightness.value = 0.25 + light * 0.75;
-    this.water.material.uniforms.fogColor.value.copy(sky);
-    this.clouds.rotation.y = this.elapsed * 0.001;
+    const graphics = this.graphics;
+    const mobile = this.stats.quality === 'mobile' || this.stats.quality === 'low';
+    this.atmosphere.update(
+      this.environment,
+      this.tuning,
+      this.camera,
+      this.sun,
+      this.ambient,
+      this.scene,
+      this.elapsed,
+      mobile,
+      graphics.particles,
+      graphics.atmosphere,
+    );
+    if (this.stats.quality === 'low') this.atmosphere.particles.geometry.setDrawRange(0, 180);
+    const targetExposure =
+      graphics.exposure *
+      (graphics.eyeAdaptation ? 1 + (1 - this.atmosphere.last.daylight) * 2.5 : 1);
+    this.renderer.toneMappingExposure +=
+      (targetExposure - this.renderer.toneMappingExposure) * (1 - Math.exp(-dt * 1.4));
+    this.surfaces.update(
+      this.environment,
+      this.tuning,
+      this.elapsed,
+      graphics.wind,
+      this.atmosphere.last.daylight,
+    );
+    this.ocean.update(
+      this.atmosphere,
+      this.scene,
+      this.tuning,
+      this.elapsed,
+      graphics.waterDetails,
+    );
+    this.clouds.rotation.y = this.elapsed * 0.001 * this.tuning.windStrength;
+    this.clouds.visible = graphics.atmosphere && this.camera.position.y > 0;
+    const cloudBatch = this.clouds.children[0] as THREE.InstancedMesh;
+    cloudBatch.count = Math.round(20 + this.atmosphere.last.weather.cloud * 70);
+    const cloudMaterial = cloudBatch.material as THREE.MeshStandardMaterial;
+    cloudMaterial.color
+      .set('#eff1ef')
+      .lerp(new THREE.Color('#596872'), this.atmosphere.last.weather.cloud * 0.8);
+    cloudMaterial.emissive
+      .copy(this.atmosphere.horizon)
+      .multiplyScalar(this.atmosphere.last.daylight * 0.22);
+    const nearestCamps = [...this.camps].sort(
+      (a, b) =>
+        this.camera.position.distanceToSquared(new THREE.Vector3(a.x, a.y, a.z)) -
+        this.camera.position.distanceToSquared(new THREE.Vector3(b.x, b.y, b.z)),
+    );
+    this.campLights.forEach((light, i) => {
+      const camp = nearestCamps[i];
+      light.intensity =
+        graphics.localLights && camp && (i === 0 || !mobile)
+          ? 12 + Math.sin(this.elapsed * 13 + i) * 1.8
+          : 0;
+      if (camp) light.position.set(camp.x, camp.y + 0.85, camp.z);
+    });
+    this.motes.visible = graphics.ambientParticles && this.camera.position.y > 0;
+    this.motes.update(
+      this.elapsed,
+      this.atmosphere.last.daylight,
+      this.atmosphere.last.weather.rain,
+      nearestCamps,
+      mobile,
+    );
+    for (const actor of this.actors.values()) {
+      if (actor.userData.target) {
+        actor.position.lerp(actor.userData.target, 1 - Math.exp(-dt * 15));
+        const diff = Math.atan2(
+          Math.sin(actor.userData.yaw - actor.rotation.y),
+          Math.cos(actor.userData.yaw - actor.rotation.y),
+        );
+        actor.rotation.y += diff * (1 - Math.exp(-dt * 12));
+        animateWildlife(actor, this.elapsed + actor.position.x, actor.userData.speed);
+      }
+      actor.visible =
+        actor.position.distanceTo(this.camera.position) <
+        (mobile ? 100 : 220) * graphics.viewDistance;
+    }
+    this.worldGroup.traverse((o) => {
+      if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial)
+        o.material.wireframe = graphics.wireframe;
+    });
+    this.debugGroup.visible = graphics.collisionDebug;
     this.buildings.update(this.elapsed);
-    const mobile = this.stats.quality === 'mobile',
-      high = this.stats.quality === 'high';
+    const high = this.stats.quality === 'high';
     for (const c of this.cullables) {
       const range =
         c.kind === 'terrain' || c.kind === 'tree'
@@ -540,9 +716,23 @@ export class WorldRenderer {
       c.object.visible =
         !player ||
         Math.hypot(this.camera.position.x - c.center.x, this.camera.position.z - c.center.z) <
-          range + c.radius;
+          range * graphics.viewDistance + c.radius;
     }
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.info.reset();
+    this.camera.updateMatrixWorld();
+    this.ocean.renderReflection(this.renderer, this.scene, this.camera, [
+      this.hand,
+      this.atmosphere.particles,
+      this.motes,
+      this.debugGroup,
+      this.selection,
+      ...(this.preview ? [this.preview] : []),
+    ]);
+    this.post.updateSun(
+      this.atmosphere.last.sun,
+      graphics.atmosphere ? this.atmosphere.last.sunlight : 0,
+    );
+    this.post.render(dt);
     this.frameCount++;
     this.frameTime += elapsedFrame;
     if (this.frameTime >= 1) {
@@ -550,6 +740,9 @@ export class WorldRenderer {
       this.stats.drawCalls = this.renderer.info.render.calls;
       this.stats.triangles = this.renderer.info.render.triangles;
       this.stats.geometries = this.renderer.info.memory.geometries;
+      this.stats.textures = this.renderer.info.memory.textures;
+      this.stats.programs = this.renderer.info.programs?.length ?? 0;
+      this.stats.frameMs = Math.round((this.frameTime / this.frameCount) * 100000) / 100;
       if (
         this.settings.quality === 'auto' &&
         !document.hidden &&
@@ -578,6 +771,8 @@ export class WorldRenderer {
 
   dispose(): void {
     this.resizeObserver.disconnect();
+    this.post.dispose();
+    this.ocean.dispose();
     disposeObject(this.scene);
     this.renderer.dispose();
   }

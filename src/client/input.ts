@@ -2,7 +2,15 @@ import { clamp } from '../shared/math';
 import type { MoveInput } from '../shared/state';
 
 export type InputAction =
-  'interact' | 'inventory' | 'build' | 'map' | 'pause' | 'rotate' | 'consume' | 'slot';
+  | 'developer'
+  | 'interact'
+  | 'inventory'
+  | 'build'
+  | 'map'
+  | 'pause'
+  | 'rotate'
+  | 'consume'
+  | 'slot';
 export class Input {
   yaw = 0;
   pitch = 0;
@@ -13,6 +21,8 @@ export class Input {
   private jump = false;
   private stick = { x: 0, y: 0 };
   private touchSprint = false;
+  private touchDive = false;
+  private touchJump = false;
   private readonly abort = new AbortController();
   private lookPointer: { id: number; x: number; y: number } | null = null;
 
@@ -24,6 +34,11 @@ export class Input {
     window.addEventListener(
       'keydown',
       (e) => {
+        if (e.code === 'F2') {
+          e.preventDefault();
+          this.action('developer');
+          return;
+        }
         if (e.code === 'Escape') {
           this.action('pause');
           return;
@@ -98,6 +113,24 @@ export class Input {
   }
 
   bindTouch(root: HTMLElement): void {
+    const dive = root.querySelector<HTMLButtonElement>('#touch-dive');
+    dive?.addEventListener(
+      'pointerdown',
+      (e) => {
+        e.preventDefault();
+        this.touchDive = true;
+        dive.setPointerCapture(e.pointerId);
+      },
+      { signal: this.abort.signal },
+    );
+    for (const event of ['pointerup', 'pointercancel', 'lostpointercapture'])
+      dive?.addEventListener(
+        event,
+        () => {
+          this.touchDive = false;
+        },
+        { signal: this.abort.signal },
+      );
     const stick = root.querySelector<HTMLElement>('#joystick')!,
       knob = stick.querySelector<HTMLElement>('span')!;
     let pointer: number | null = null;
@@ -137,14 +170,25 @@ export class Input {
     };
     stick.addEventListener('pointerup', release, { signal: this.abort.signal });
     stick.addEventListener('pointercancel', release, { signal: this.abort.signal });
-    root.querySelector('#touch-jump')!.addEventListener(
+    const jumpButton = root.querySelector<HTMLElement>('#touch-jump')!;
+    jumpButton.addEventListener(
       'pointerdown',
       (e) => {
         e.preventDefault();
         this.jump = true;
+        this.touchJump = true;
+        jumpButton.setPointerCapture(e.pointerId);
       },
       { signal: this.abort.signal },
     );
+    for (const event of ['pointerup', 'pointercancel', 'lostpointercapture'])
+      jumpButton.addEventListener(
+        event,
+        () => {
+          this.touchJump = false;
+        },
+        { signal: this.abort.signal },
+      );
     root.querySelector('#touch-sprint')!.addEventListener(
       'click',
       (e) => {
@@ -161,7 +205,7 @@ export class Input {
     this.pitch = clamp(this.pitch - dy * 0.0022 * this.sensitivity * multiplier, -1.45, 1.45);
   }
 
-  sample(): MoveInput {
+  sample(flying = false): MoveInput {
     const forward = this.active
       ? Number(this.keys.has('KeyW') || this.keys.has('ArrowUp')) -
         Number(this.keys.has('KeyS') || this.keys.has('ArrowDown')) -
@@ -180,7 +224,8 @@ export class Input {
       sprint:
         this.active &&
         (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') || this.touchSprint),
-      jump: this.active && this.jump,
+      jump: this.active && (flying ? this.keys.has('Space') || this.touchJump : this.jump),
+      dive: this.active && (this.keys.has('KeyC') || this.touchDive),
     };
     this.jump = false;
     return input;
@@ -193,6 +238,8 @@ export class Input {
     this.stick = { x: 0, y: 0 };
     this.lookPointer = null;
     this.touchSprint = false;
+    this.touchDive = false;
+    this.touchJump = false;
   }
   dispose(): void {
     this.abort.abort();

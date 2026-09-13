@@ -225,3 +225,116 @@ export const BALANCE = {
   maxBuildings: 512,
   maxPlayers: 16,
 } as const;
+
+export const SPECIES_IDS = [
+  'boar',
+  'deer',
+  'wolf',
+  'fox',
+  'rabbit',
+  'fish',
+  'turtle',
+  'dolphin',
+] as const;
+export type Species = (typeof SPECIES_IDS)[number];
+export interface SpeciesDefinition {
+  name: string;
+  habitat: 'land' | 'sea';
+  behavior: 'territorial' | 'predator' | 'flee' | 'school';
+  health: number;
+  speed: number;
+  damage: number;
+  count: number;
+  radius: number;
+  loot: Inventory;
+}
+export const WILDLIFE: Record<Species, SpeciesDefinition> = {
+  boar: {
+    name: 'Wild boar',
+    habitat: 'land',
+    behavior: 'territorial',
+    health: 60,
+    speed: 3.5,
+    damage: 12,
+    count: 8,
+    radius: 0.65,
+    loot: { meat: 3, fiber: 2 },
+  },
+  deer: {
+    name: 'Fallow deer',
+    habitat: 'land',
+    behavior: 'flee',
+    health: 45,
+    speed: 6,
+    damage: 0,
+    count: 10,
+    radius: 0.7,
+    loot: { meat: 4, fiber: 3 },
+  },
+  wolf: {
+    name: 'Grey wolf',
+    habitat: 'land',
+    behavior: 'predator',
+    health: 75,
+    speed: 4.6,
+    damage: 16,
+    count: 4,
+    radius: 0.6,
+    loot: { meat: 2, fiber: 3 },
+  },
+  fox: {
+    name: 'Red fox',
+    habitat: 'land',
+    behavior: 'flee',
+    health: 25,
+    speed: 4.5,
+    damage: 0,
+    count: 6,
+    radius: 0.4,
+    loot: { meat: 1, fiber: 2 },
+  },
+  rabbit: {
+    name: 'Meadow rabbit',
+    habitat: 'land',
+    behavior: 'flee',
+    health: 15,
+    speed: 3.8,
+    damage: 0,
+    count: 14,
+    radius: 0.25,
+    loot: { meat: 1, fiber: 1 },
+  },
+  fish: {
+    name: 'Reef fish',
+    habitat: 'sea',
+    behavior: 'school',
+    health: 10,
+    speed: 1.8,
+    damage: 0,
+    count: 8,
+    radius: 0.25,
+    loot: { meat: 1 },
+  },
+  turtle: {
+    name: 'Sea turtle',
+    habitat: 'sea',
+    behavior: 'school',
+    health: 40,
+    speed: 0.8,
+    damage: 0,
+    count: 3,
+    radius: 0.6,
+    loot: { meat: 2 },
+  },
+  dolphin: {
+    name: 'Coastal dolphin',
+    habitat: 'sea',
+    behavior: 'school',
+    health: 80,
+    speed: 3.4,
+    damage: 0,
+    count: 3,
+    radius: 0.9,
+    loot: { meat: 3 },
+  },
+};

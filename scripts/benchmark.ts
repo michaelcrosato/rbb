@@ -6,6 +6,7 @@ import { encodeSave } from '../src/shared/save';
 import { Simulation } from '../src/shared/simulation';
 import { createState } from '../src/shared/state';
 import { generateWorld, terrainHeight } from '../src/shared/world';
+import { setWeather } from '../src/shared/environment';
 import type { Diagnostics } from '../tests/e2e/helpers';
 
 // A repeatable GPU workload. Fixtures enter through the same validated save-import UI as user saves.
@@ -32,6 +33,12 @@ for (const r of world.resources)
   if (sim.state.buildings.some((b) => Math.hypot(b.x - r.x, b.z - r.z) < 3))
     sim.state.resources[r.id] = { health: 0, respawnAt: 100000 };
 await writeFile(fixturePath, encodeSave(sim.state, player.id));
+const stormPath = resolve(output, 'storm-coast.json');
+setWeather(sim.state.environment, 'storm', 0);
+sim.state.environment.wetness = 1;
+player.position = { x: 0, z: -200, y: Math.max(-1.2, terrainHeight(0, -200, world.hash)) };
+player.yaw = Math.PI;
+await writeFile(stormPath, encodeSave(sim.state, player.id));
 const software = process.argv.includes('--software');
 const browser = await chromium.launch({
   ...(software ? {} : { channel: 'chrome' }),
@@ -45,7 +52,14 @@ const report: Record<string, unknown> = {
   scenes: [],
 };
 try {
-  for (const quality of ['balanced', 'mobile'] as const) {
+  for (const scene of [
+    { name: 'balanced-camp', quality: 'balanced', fixture: fixturePath, enhanced: false },
+    { name: 'mobile-camp', quality: 'mobile', fixture: fixturePath, enhanced: false },
+    { name: 'low-camp', quality: 'low', fixture: fixturePath, enhanced: false },
+    { name: 'enhanced-camp', quality: 'high', fixture: fixturePath, enhanced: true },
+    { name: 'storm-coast', quality: 'high', fixture: stormPath, enhanced: true },
+  ] as const) {
+    const { quality } = scene;
     const context = await browser.newContext(
       quality === 'mobile'
         ? {
@@ -59,12 +73,19 @@ try {
     const page = await context.newPage();
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error') errors.push(message.text());
+    });
     await page.goto(url);
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await page.locator('#quality').selectOption(quality);
+    if (scene.enhanced) {
+      await page.getByText('Rendering effects', { exact: true }).click();
+      await page.getByRole('button', { name: 'Enable enhanced effects' }).click();
+    }
     await page.getByRole('button', { name: 'Apply settings' }).click();
     await page.getByRole('button', { name: 'Field guide' }).click();
-    await page.locator('#import-file').setInputFiles(fixturePath);
+    await page.locator('#import-file').setInputFiles(scene.fixture);
     await page.waitForTimeout(5000);
     const samples: Diagnostics['renderer'][] = [];
     for (let i = 0; i < 12; i++) {
@@ -86,6 +107,8 @@ try {
     const fps = samples.map((s) => s.fps).sort((a, b) => a - b);
     (report.scenes as unknown[]).push({
       quality,
+      name: scene.name,
+      enhanced: scene.enhanced,
       viewport: page.viewportSize(),
       buildings: 100,
       gpu,
@@ -97,10 +120,14 @@ try {
         Math.min(...samples.map((s) => s.geometries)),
         Math.max(...samples.map((s) => s.geometries)),
       ],
+      textures: [
+        Math.min(...samples.map((s) => s.textures)),
+        Math.max(...samples.map((s) => s.textures)),
+      ],
       pixelRatio: samples.at(-1)!.pixelRatio,
       errors,
     });
-    await page.screenshot({ path: resolve(output, `${quality}-camp.png`) });
+    await page.screenshot({ path: resolve(output, `${scene.name}.png`) });
     await context.close();
   }
   await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2));

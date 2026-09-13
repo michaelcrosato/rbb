@@ -1,5 +1,4 @@
 import {
-  BALANCE,
   BUILDINGS,
   BUILDING_IDS,
   ITEMS,
@@ -16,9 +15,19 @@ import { biomeAt, DEFAULT_SEED, terrainHeight, WORLD_SIZE } from '../../shared/w
 import type { WorldDefinition } from '../../shared/world';
 import type { RenderSettings, Target } from '../render/renderer';
 import { escapeHtml as esc, icon } from './icons';
+import { graphicsMarkup } from './developer';
 
 export type Panel =
-  'inventory' | 'build' | 'map' | 'pause' | 'settings' | 'guide' | 'online' | 'death' | 'new';
+  | 'developer'
+  | 'inventory'
+  | 'build'
+  | 'map'
+  | 'pause'
+  | 'settings'
+  | 'guide'
+  | 'online'
+  | 'death'
+  | 'new';
 export const HOTBAR: ItemId[] = ['rock', 'hatchet', 'pickaxe', 'berries', 'bandage'];
 
 export class UI {
@@ -42,7 +51,7 @@ export class UI {
       <canvas id="world" aria-label="3D survival world. Use WASD to move, mouse or touch to look, and E to gather."></canvas>
       <div id="vignette"></div>
       <main id="main-menu" class="menu">
-        <header class="brand"><span class="brand-symbol">${icon('mountain')}</span><strong>rbb<span class="brand-dot">.</span></strong><span class="tag">FRONTIER ALPHA <b>0.1</b></span></header>
+        <header class="brand"><span class="brand-symbol">${icon('mountain')}</span><strong>rbb<span class="brand-dot">.</span></strong><span class="tag">FRONTIER ALPHA <b>0.2</b></span></header>
         <section class="menu-content">
           <p class="eyebrow"><span class="status-dot"></span> THE QUIET FRONTIER</p>
           <h1>A little wild.<br>A world of <em>possibility.</em></h1>
@@ -63,10 +72,10 @@ export class UI {
         <aside id="journal" class="journal"><div class="eyebrow">YOUR FIRST FOOTPRINTS <span>↗</span></div><strong id="objective-title"></strong><p id="objective-description"></p><div class="objective-track"><span id="objective-progress"></span></div><span id="objective-count" class="small muted"></span></aside>
         <div class="crosshair" aria-hidden="true"><span></span><span></span></div>
         <div id="target" class="target" hidden><span class="key">E</span><div><strong id="target-name"></strong><small id="target-action"></small></div></div>
-        <div id="build-hint" class="build-hint" hidden></div>
+        <div id="oxygen" hidden></div><div id="build-hint" class="build-hint" hidden></div>
         <div class="hud-bottom"><div class="vitals">${(['health', 'hunger', 'thirst', 'stamina'] as const).map((stat, i) => `<div class="vital ${stat}" aria-label="${stat}">${icon(['heart', 'food', 'water', 'bolt'][i])}<div class="vital-track"><span id="${stat}-bar"></span></div><b id="${stat}-value">100</b></div>`).join('')}</div><div class="hotbar">${HOTBAR.map((item, i) => `<button class="slot" data-action="slot" data-value="${i}" aria-label="Equip ${ITEMS[item].name}"><kbd>${i + 1}</kbd>${icon(ITEMS[item].icon)}<small id="slot-count-${i}"></small><span class="slot-label">${ITEMS[item].name}</span></button>`).join('')}<button class="slot build-slot" data-action="build" aria-label="Building menu"><kbd>6</kbd>${icon('foundation')}<span class="slot-label">Build</span></button></div><div class="hud-status"><span id="save-indicator"><span class="status-dot"></span> World ready</span><span id="coordinates"></span></div></div>
         <div class="control-hints"><span><kbd>W A S D</kbd> move</span><span><kbd>E</kbd> gather</span><span><kbd>TAB</kbd> craft</span><span><kbd>B</kbd> build</span><span><kbd>F</kbd> use item</span></div>
-        <div id="touch-controls"><div id="joystick" aria-label="Movement joystick"><span></span></div><div class="touch-actions"><button id="touch-sprint" class="touch-button" aria-label="Toggle sprint">${icon('bolt')}</button><button id="touch-jump" class="touch-button" aria-label="Jump">↑</button><button class="touch-button touch-gather" data-action="interact" aria-label="Gather or place">${icon('hatchet')}<small>USE</small></button><button class="touch-button" data-action="consume" aria-label="Eat berries or use equipped item">${icon('berries')}</button><button class="touch-button" data-action="rotate" aria-label="Rotate building">↻</button></div></div>
+        <div id="touch-controls"><div id="joystick" aria-label="Movement joystick"><span></span></div><div class="touch-actions"><button id="touch-sprint" class="touch-button" aria-label="Toggle sprint">${icon('bolt')}</button><button id="touch-dive" class="touch-button" aria-label="Hold to dive" hidden>↓</button><button id="touch-jump" class="touch-button" aria-label="Jump">↑</button><button class="touch-button touch-gather" data-action="interact" aria-label="Gather or place">${icon('hatchet')}<small>USE</small></button><button class="touch-button" data-action="consume" aria-label="Eat berries or use equipped item">${icon('berries')}</button><button class="touch-button" data-action="rotate" aria-label="Rotate building">↻</button></div></div>
       </div>
       <div id="modal" class="modal-backdrop" hidden><section class="panel" role="dialog" aria-modal="true" aria-labelledby="panel-title"><div class="panel-top"><span class="eyebrow">RBB / FIELD NOTES</span><button class="icon-button" data-action="close" aria-label="Close panel">${icon('close')}</button></div><div id="panel-body"></div></section></div>
       <div id="toast" role="status" aria-live="polite" hidden></div>
@@ -148,13 +157,27 @@ export class UI {
     mode: string,
   ): void {
     this.sessionMode = mode;
+    const oxygen = this.root.querySelector<HTMLElement>('#oxygen')!;
+    oxygen.hidden = player.oxygen >= 100 && player.position.y >= -1.5;
+    oxygen.textContent = `AIR ${Math.round(player.oxygen)}% · ${matchMedia('(pointer: coarse)').matches ? 'Release dive' : 'Release C'} to surface`;
+    this.root.querySelector<HTMLElement>('#touch-dive')!.hidden =
+      player.position.y >= 0 && !player.dev.flight;
     this.root.querySelector('#biome')!.textContent = biomeAt(
       player.position.x,
       player.position.z,
       world.hash,
     );
     this.root.querySelector('#world-detail')!.textContent =
-      `DAY ${String(Math.floor(state.time / BALANCE.daySeconds) + 1).padStart(2, '0')} · ${mode === 'solo' ? 'SOLO EXPEDITION' : 'SHARED WORLD'}`;
+      `DAY ${String(Math.floor(state.environment.hours / 24) + 1).padStart(2, '0')} · ${state.sandbox ? 'SANDBOX · ' : ''}${Math.floor(
+        state.environment.hours % 24,
+      )
+        .toString()
+        .padStart(2, '0')}:${Math.floor((state.environment.hours % 1) * 60)
+        .toString()
+        .padStart(
+          2,
+          '0',
+        )} · ${state.environment.weather.toUpperCase()} · ${mode === 'solo' ? 'SOLO' : 'SHARED'}`;
     const bearing = ((((-yaw * 180) / Math.PI) % 360) + 360) % 360;
     this.root.querySelector('#heading')!.textContent = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][
       Math.round(bearing / 45) % 8
@@ -219,6 +242,7 @@ export class UI {
     this.panel = panel;
     this.panelSignature = '';
     this.renderSettings = settings ?? this.renderSettings;
+    this.modal.classList.toggle('developer-view', panel === 'developer');
     this.modal.hidden = false;
     this.menu.inert = true;
     this.hud.inert = true;
@@ -245,7 +269,8 @@ export class UI {
 
   private renderPanel(panel: Panel, player?: PlayerState): void {
     let body: string;
-    if (panel === 'inventory' && player) {
+    if (panel === 'developer') body = '<div id="developer-loading">Developer tools</div>';
+    else if (panel === 'inventory' && player) {
       body = `<h2 id="panel-title">A life, in your pack.</h2><p class="panel-description">Gather what you need. Make something useful.</p><div class="pack-layout"><div><div class="section-label">YOUR SUPPLIES <span>${inventoryWeight(player.inventory).toFixed(1)} / ${MAX_WEIGHT} kg</span></div><div class="inventory-grid">${ITEM_IDS.filter(
         (id) => player.inventory[id],
       )
@@ -257,15 +282,15 @@ export class UI {
           '',
         )}</div><p class="muted small">Select an item to equip or use it. Hover for field notes.</p></div><div><div class="section-label">CRAFTING <span>${RECIPE_IDS.length} RECIPES</span></div><div class="recipe-list">${RECIPE_IDS.map((id) => `<article class="recipe"><div class="recipe-icon">${icon(ITEMS[id].icon)}</div><div class="recipe-details"><h3>${RECIPES[id].name}</h3><p>${RECIPES[id].description}</p><div class="costs">${this.cost(RECIPES[id].cost, player.inventory)}</div></div><button class="button small-button" data-action="craft" data-value="${id}" ${canAfford(player.inventory, RECIPES[id].cost) ? '' : 'disabled'}>Craft</button></article>`).join('')}</div></div></div>`;
     } else if (panel === 'build' && player) {
-      body = `<h2 id="panel-title">Put down roots.</h2><p class="panel-description">Choose a piece, find a clear spot, then place it. Press R to rotate.</p><div class="building-grid">${BUILDING_IDS.map((id) => `<button class="building-card" data-action="select-build" data-value="${id}"><span class="building-icon">${icon(BUILDINGS[id].icon)}</span><h3>${BUILDINGS[id].name}</h3><p>${BUILDINGS[id].description}</p><div class="costs">${this.cost(BUILDINGS[id].cost, player.inventory)}</div><span class="card-footer">${canAfford(player.inventory, BUILDINGS[id].cost) ? 'SELECT & PLACE' : 'PREVIEW · NEEDS MATERIALS'} ${icon('arrow')}</span></button>`).join('')}</div>`;
+      body = `<h2 id="panel-title">Put down roots.</h2><p class="panel-description">Choose a piece, find a clear spot, then place it. Press R to rotate.</p><div class="building-grid">${BUILDING_IDS.map((id) => `<button class="building-card" data-action="select-build" data-value="${id}"><span class="building-icon">${icon(BUILDINGS[id].icon)}</span><h3>${BUILDINGS[id].name}</h3><p>${BUILDINGS[id].description}</p><div class="costs">${this.cost(BUILDINGS[id].cost, player.inventory)}</div><span class="card-footer">${player.dev.freeBuild || canAfford(player.inventory, BUILDINGS[id].cost) ? 'SELECT & PLACE' : 'PREVIEW · NEEDS MATERIALS'} ${icon('arrow')}</span></button>`).join('')}</div>`;
     } else if (panel === 'map') {
       body =
         '<h2 id="panel-title">Know your island.</h2><p class="panel-description">Your position, freshwater, camps, and the way back.</p><div class="map-wrap"><canvas id="island-map" width="512" height="512" aria-label="Island map with your location, springs, buildings and lost packs"></canvas><span class="map-north">N ↑</span></div><div class="map-legend"><span>▲ You</span><span>◆ Camp</span><span>● Freshwater</span><span>✚ Lost pack</span></div>';
     } else if (panel === 'pause') {
-      body = `<h2 id="panel-title">Take a breath.</h2><p class="panel-description">${this.sessionMode === 'solo' ? 'Your solo world is paused. Your progress is saved automatically.' : 'The shared world keeps moving. Find a safe place before stepping away.'}</p><div class="pause-buttons"><button class="button primary" data-action="resume">Return to the wild ${icon('arrow')}</button><button class="button secondary" data-action="inventory">Pack & crafting ${icon('bag')}</button><button class="button secondary" data-action="settings">Settings ${icon('settings')}</button><button class="button secondary" data-action="guide">Field guide ${icon('map')}</button>${this.sessionMode === 'solo' ? '<button class="button secondary" data-action="export">Export save ↗</button>' : ''}<button class="text-button" data-action="menu">Save & return to menu</button></div>`;
+      body = `<h2 id="panel-title">Take a breath.</h2><p class="panel-description">${this.sessionMode === 'solo' ? 'Your solo world is paused. Your progress is saved automatically.' : 'The shared world keeps moving. Find a safe place before stepping away.'}</p><div class="pause-buttons"><button class="button primary" data-action="resume">Return to the wild ${icon('arrow')}</button><button class="button secondary" data-action="inventory">Pack & crafting ${icon('bag')}</button><button class="button secondary" data-action="settings">Settings ${icon('settings')}</button><button class="button secondary" data-action="developer">Developer tools <kbd>F2</kbd></button><button class="button secondary" data-action="guide">Field guide ${icon('map')}</button>${this.sessionMode === 'solo' ? '<button class="button secondary" data-action="export">Export save ↗</button>' : ''}<button class="text-button" data-action="menu">Save & return to menu</button></div>`;
     } else if (panel === 'settings') {
       const s = this.renderSettings!;
-      body = `<h2 id="panel-title">Your kind of frontier.</h2><p class="panel-description">Tune the experience to your device.</p><div class="settings-form"><label for="quality">Graphics quality <small>Auto adjusts resolution when frames slow down.</small></label><select id="quality"><option value="auto">Auto · recommended</option><option value="high">High · desktop</option><option value="balanced">Balanced</option><option value="mobile">Mobile · lighter shadows</option></select><label for="fov">Field of view <output id="fov-output">${s.fov}°</output></label><input id="fov" type="range" min="55" max="100" value="${s.fov}"/><label for="sensitivity">Look sensitivity <output id="sensitivity-output">${s.sensitivity.toFixed(1)}</output></label><input id="sensitivity" type="range" min="0.3" max="2.5" step="0.1" value="${s.sensitivity}"/><label for="volume">Sound effects <output id="volume-output">${Math.round(s.volume * 100)}%</output></label><input id="volume" type="range" min="0" max="1" step="0.05" value="${s.volume}"/><label class="checkbox-label"><input id="show-stats" type="checkbox" ${s.showStats ? 'checked' : ''}/> Show performance overlay</label><button class="button primary" data-action="apply-settings">Apply settings ${icon('check')}</button></div>`;
+      body = `<h2 id="panel-title">Your kind of frontier.</h2><p class="panel-description">Tune the experience to your device.</p><div class="settings-form"><label for="quality">Graphics quality <small>Auto adjusts resolution when frames slow down.</small></label><select id="quality"><option value="auto">Auto · recommended</option><option value="high">High · desktop</option><option value="balanced">Balanced</option><option value="mobile">Mobile · efficient</option><option value="low">Low · older hardware</option></select><label for="fov">Field of view <output id="fov-output">${s.fov}°</output></label><input id="fov" type="range" min="55" max="100" value="${s.fov}"/><label for="sensitivity">Look sensitivity <output id="sensitivity-output">${s.sensitivity.toFixed(1)}</output></label><input id="sensitivity" type="range" min="0.3" max="2.5" step="0.1" value="${s.sensitivity}"/><label for="volume">Sound effects <output id="volume-output">${Math.round(s.volume * 100)}%</output></label><input id="volume" type="range" min="0" max="1" step="0.05" value="${s.volume}"/><label class="checkbox-label"><input id="show-stats" type="checkbox" ${s.showStats ? 'checked' : ''}/> Show performance overlay</label><details class="graphics-options"><summary>Rendering effects</summary>${graphicsMarkup(s.graphics)}<button class="button secondary" id="enhanced-effects" type="button">Enable enhanced effects</button></details><button class="button primary" data-action="apply-settings">Apply settings ${icon('check')}</button></div>`;
     } else if (panel === 'online') {
       body = `<h2 id="panel-title">Better with company.</h2><p class="panel-description">Join a running RBB world server. Your survivor stays with that world.</p><div class="settings-form"><label for="survivor-name">Survivor name</label><input id="survivor-name" value="Wanderer" maxlength="24" autocomplete="nickname"/><label for="server-url">World server</label><input id="server-url" value="${esc(import.meta.env.VITE_SERVER_URL || 'ws://localhost:8787')}" placeholder="wss://your-world.example.com" spellcheck="false"/><p class="muted small">Up to 16 survivors. The host runs the persistent world server included with RBB.</p><label class="checkbox-label"><input id="fresh-survivor" type="checkbox"/> Start a new survivor (replaces the saved login for this world)</label><button class="button primary" data-action="connect">Join world ${icon('arrow')}</button><p id="connect-status" class="small" role="status"></p></div>`;
     } else if (panel === 'death') {
@@ -279,13 +304,23 @@ export class UI {
         icon('arrow') +
         '</button><button class="text-button" data-action="close">Keep my current expedition</button></div>';
     } else {
-      body = `<h2 id="panel-title">Leave your first footprints.</h2><p class="panel-description">A few things to know before the island becomes home.</p><div class="guide-grid"><article><span>01</span><h3>Explore & gather</h3><p>WASD to walk, Shift to sprint, Space to jump. Move close, aim at a resource, then press E or hold the left mouse button. On touch, use the left stick and drag the world to look.</p></article><article><span>02</span><h3>Make your tools</h3><p>Tab opens your pack. A hatchet gathers wood faster; a pickaxe helps with stone. Collect wild flax for fiber. Use 1–5 to change tools, and F to eat or heal.</p></article><article><span>03</span><h3>Make camp</h3><p>B opens the building menu. A green preview marks a valid spot. E or left click places it. R rotates; B cancels. Walls snap to foundations. A bedroll sets your respawn point.</p></article><article><span>04</span><h3>Stay a little longer</h3><p>Eat berries and drink at the stone-ringed freshwater spring. Boars defend their territory. Cook meat beside a campfire, and rest nearby to heal. M opens your map. Esc opens the pause menu.</p></article></div><div class="guide-footer"><span class="muted small">Solo saves every 10 seconds and when you pause. Online worlds keep running while you look through your pack.</span><button class="button secondary" data-action="import">Import solo save ↗</button></div>`;
+      body = `<h2 id="panel-title">Leave your first footprints.</h2><p class="panel-description">A few things to know before the island becomes home.</p><div class="guide-grid"><article><span>01</span><h3>Explore & gather</h3><p>WASD to walk, Shift to sprint, Space to jump. In water, hold C to dive and release to surface; watch your air. Move close, aim at a resource, then press E or hold the left mouse button. On touch, use the left stick and drag the world to look.</p></article><article><span>02</span><h3>Make your tools</h3><p>Tab opens your pack. A hatchet gathers wood faster; a pickaxe helps with stone. Collect wild flax for fiber. Use 1–5 to change tools, and F to eat or heal.</p></article><article><span>03</span><h3>Make camp</h3><p>B opens the building menu. A green preview marks a valid spot. E or left click places it. R rotates; B cancels. Walls snap to foundations. A bedroll sets your respawn point.</p></article><article><span>04</span><h3>Stay a little longer</h3><p>Eat berries and drink at the stone-ringed freshwater spring. Boars defend their territory. Cook meat beside a campfire, and rest nearby to heal. M opens your map. Esc opens the pause menu.</p></article></div><div class="guide-footer"><span class="muted small">Solo saves every 10 seconds and when you pause. Online worlds keep running while you look through your pack.</span><button class="button secondary" data-action="import">Import solo save ↗</button></div>`;
     }
     this.modalBody.innerHTML = body;
     this.modal
       .querySelector('.panel')!
       .classList.toggle('wide', ['inventory', 'build', 'guide'].includes(panel));
     if (panel === 'settings') {
+      this.modal.querySelector('#enhanced-effects')!.addEventListener('click', () => {
+        for (const key of [
+          'bloom',
+          'ambientOcclusion',
+          'sunShafts',
+          'lensFlare',
+          'planarReflections',
+        ])
+          this.modal.querySelector<HTMLInputElement>(`[data-graphics="${key}"]`)!.checked = true;
+      });
       (this.modal.querySelector('#quality') as HTMLSelectElement).value =
         this.renderSettings!.quality;
       for (const id of ['fov', 'sensitivity', 'volume'])

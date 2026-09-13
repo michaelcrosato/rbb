@@ -38,7 +38,7 @@ describe('versioned saves and recovery', () => {
   it('rejects invalid versions, counts, unknown content, missing players, huge files and invalid JSON', () => {
     for (const mutate of [
       (s: ReturnType<typeof fixture>) => {
-        s.version = 99 as 1;
+        s.version = 99 as 2;
       },
       (s: ReturnType<typeof fixture>) => {
         s.players.local.inventory.wood = -1;

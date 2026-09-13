@@ -83,17 +83,36 @@ export function stepPlayer(
   const swimming = terrainHeight(p.position.x, p.position.z, world.hash) < -1.2 && p.position.y < 0;
   const moving = Math.hypot(input.forward, input.strafe) > 0.01;
   const sprinting = input.sprint && moving && p.stamina > 1 && !swimming;
-  const speed = swimming ? BALANCE.swimSpeed : sprinting ? BALANCE.sprintSpeed : BALANCE.walkSpeed;
+  const speed =
+    (swimming ? BALANCE.swimSpeed : sprinting ? BALANCE.sprintSpeed : BALANCE.walkSpeed) *
+    state.tuning.movementSpeed;
   p.stamina = clamp(p.stamina + (sprinting ? -12 : 14) * dt, 0, 100);
   const length = Math.max(1, Math.hypot(input.forward, input.strafe));
   const dx =
     ((-Math.sin(p.yaw) * input.forward + Math.cos(p.yaw) * input.strafe) / length) * speed * dt;
   const dz =
     ((-Math.cos(p.yaw) * input.forward - Math.sin(p.yaw) * input.strafe) / length) * speed * dt;
+  if (p.dev.flight) {
+    p.position.x = clamp(p.position.x + dx * 3, -WORLD_HALF + 8, WORLD_HALF - 8);
+    p.position.z = clamp(p.position.z + dz * 3, -WORLD_HALF + 8, WORLD_HALF - 8);
+    p.position.y = clamp(
+      p.position.y +
+        (Math.sin(p.pitch) * input.forward + Number(input.jump) - Number(input.dive)) *
+          speed *
+          3 *
+          dt,
+      -15,
+      140,
+    );
+    p.velocityY = 0;
+    p.grounded = false;
+    return;
+  }
   if (input.jump && p.grounded && !swimming) {
-    p.velocityY = BALANCE.jumpSpeed;
+    p.velocityY = BALANCE.jumpSpeed * Math.sqrt(state.tuning.jumpHeight);
     p.grounded = false;
   }
+  const swimmingUp = input.jump;
   input.jump = false;
   const tryMove = (x: number, z: number) => {
     x = clamp(x, -WORLD_HALF + 2, WORLD_HALF - 2);
@@ -105,11 +124,22 @@ export function stepPlayer(
   };
   tryMove(p.position.x + dx, p.position.z);
   tryMove(p.position.x, p.position.z + dz);
+  if (swimming) {
+    const vertical = input.dive ? -2.3 : swimmingUp ? 3 : p.position.y < -1.2 ? 1.2 : 0;
+    p.velocityY += (vertical - p.velocityY) * Math.min(1, dt * 5);
+    p.position.y = Math.max(
+      groundHeight(state, world, p.position.x, p.position.z) + 0.15,
+      Math.min(-1.2, p.position.y + p.velocityY * dt),
+    );
+    p.grounded = false;
+    return;
+  }
   const floor = Math.max(groundHeight(state, world, p.position.x, p.position.z), -1.2);
-  p.velocityY -= BALANCE.gravity * dt;
+  p.velocityY -= BALANCE.gravity * state.tuning.gravity * dt;
   p.position.y += p.velocityY * dt;
   if (p.position.y <= floor) {
-    if (p.velocityY < -13) p.health = Math.max(0, p.health - (-p.velocityY - 13) * 4);
+    if (p.velocityY < -13 && !p.dev.invincible)
+      p.health = Math.max(0, p.health - (-p.velocityY - 13) * 4 * state.tuning.damage);
     p.position.y = floor;
     p.velocityY = 0;
     p.grounded = true;

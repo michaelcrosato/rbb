@@ -66,7 +66,8 @@ export function validateBuild(
   if (distance2(p.position, b) > BALANCE.buildRange || Math.abs(p.position.y - b.y) > 7)
     return fail('Move closer to build.');
   if (b.y < 1 || terrainHeight(b.x, b.z, world.hash) < 0.5) return fail('Find dry ground.');
-  if (!canAfford(p.inventory, BUILDINGS[b.kind].cost)) return fail('You need more materials.');
+  if (!p.dev.freeBuild && !canAfford(p.inventory, BUILDINGS[b.kind].cost))
+    return fail('You need more materials.');
   if (b.kind === 'wall') {
     if (
       !state.buildings.some(

@@ -57,3 +57,32 @@ test('mobile layout, touch move/look, menus and landscape fit the screen', async
   await expect(page.getByRole('button', { name: 'Gather or place' })).toBeInViewport();
   expect(errors).toEqual([]);
 });
+
+test('developer controls are usable by touch in portrait and landscape', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await startSolo(page);
+  await page.getByRole('button', { name: 'Pause', exact: true }).tap();
+  await page.getByRole('button', { name: 'Developer tools' }).tap();
+  await page.getByRole('button', { name: 'Dusk', exact: true }).tap();
+  await expect
+    .poll(async () => (await diagnostics(page)).environment.hours % 24)
+    .toBeGreaterThanOrEqual(18);
+  await page.getByRole('tab', { name: 'World variables' }).tap();
+  await page.locator('[data-tuning="moonSize"]').fill('2');
+  await page.getByRole('button', { name: 'Apply world variables' }).tap();
+  await expect.poll(async () => (await diagnostics(page)).tuning.moonSize).toBe(2);
+  await page.screenshot({ path: testInfo.outputPath('mobile-developer-portrait.png') });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.setViewportSize({ width: 915, height: 412 });
+  await page.getByRole('tab', { name: 'Quick tools' }).tap();
+  await page.getByRole('checkbox', { name: 'Invincible', exact: true }).check();
+  await page.getByRole('button', { name: 'Visit the coast', exact: true }).tap();
+  await page.getByRole('button', { name: 'Close panel' }).tap();
+  await expect(page.getByRole('button', { name: 'Hold to dive' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('mobile-coast.png') });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});

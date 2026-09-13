@@ -13,6 +13,7 @@ import { TokenBucket } from './rate-limit';
 import { WorldStore } from './store';
 
 export interface ServerOptions {
+  allowDevTools?: boolean;
   port?: number;
   host?: string;
   dataDir?: string;
@@ -49,7 +50,13 @@ export async function startWorldServer(options: ServerOptions = {}) {
     );
   }
   const world = generateWorld(saved?.seed ?? options.seed ?? DEFAULT_SEED);
-  const sim = new Simulation(world, saved ?? createState(world));
+  if (saved?.sandbox && !options.allowDevTools) {
+    store.close();
+    throw new Error(
+      'This is a sandbox world. Set ALLOW_DEV_TOOLS=true or use a separate data directory.',
+    );
+  }
+  const sim = new Simulation(world, saved ?? createState(world), options.allowDevTools ?? false);
   const allowed = new Set(
     options.allowedOrigins ?? [
       'http://localhost:5173',
@@ -89,7 +96,7 @@ export async function startWorldServer(options: ServerOptions = {}) {
     res.end(
       JSON.stringify({
         service: 'rbb-world',
-        version: '0.1.0',
+        version: '0.2.0',
         protocol: PROTOCOL_VERSION,
         ready: healthy && !shuttingDown,
         tick: sim.state.tick,
@@ -160,7 +167,7 @@ export async function startWorldServer(options: ServerOptions = {}) {
     socket.send(JSON.stringify(message));
   };
   const snapshot = (id: string) => {
-    const result = snapshotFor(sim.state, id);
+    const result = snapshotFor(sim.state, id, sim.devAllowed);
     const active = new Set([...clients.values()].map((c) => c.playerId));
     result.players = result.players.filter((p) => active.has(p.id));
     return result;
@@ -288,7 +295,12 @@ export async function startWorldServer(options: ServerOptions = {}) {
         }
         if (message.command.type === 'move') client.lastInput = performance.now();
         const result = sim.command(client.playerId, message.command);
-        if (message.command.type !== 'move' && (!result.ok || message.command.type === 'respawn'))
+        if (message.command.type === 'dev' && result.ok)
+          send(socket, { type: 'snapshot', snapshot: snapshot(client.playerId) });
+        if (
+          message.command.type !== 'move' &&
+          (!result.ok || message.command.type === 'respawn' || message.command.type === 'dev')
+        )
           send(socket, { type: 'result', seq: message.seq, result });
       }
     });

@@ -257,6 +257,7 @@ describe('movement, combat and bounded simulation', () => {
             pitch: 0,
             sprint: rng() > 0.5,
             jump: rng() > 0.8,
+            dive: rng() > 0.9,
           },
         });
       sim.tick();

@@ -118,7 +118,7 @@ export function resourceGeometry(kind: ResourceKind): THREE.BufferGeometry {
 }
 
 /** Merge each procedural model into one draw call; preserve animated flames separately. */
-function compact(group: THREE.Group): THREE.Group {
+export function compact(group: THREE.Group): THREE.Group {
   group.updateMatrixWorld(true);
   const parts: THREE.BufferGeometry[] = [];
   for (const child of [...group.children]) {
@@ -274,8 +274,9 @@ export function disposeObject(object: THREE.Object3D): void {
   const geometries = new Set<THREE.BufferGeometry>(),
     materials = new Set<THREE.Material>();
   object.traverse((o) => {
-    if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) {
+    if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments || o instanceof THREE.Points) {
       geometries.add(o.geometry);
+      if (o instanceof THREE.Mesh && o.customDepthMaterial) materials.add(o.customDepthMaterial);
       for (const m of Array.isArray(o.material) ? o.material : [o.material]) materials.add(m);
     }
   });

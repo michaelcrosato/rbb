@@ -1,10 +1,20 @@
 import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import type { PlayerState, Building } from '../../src/shared/state';
+import type { PlayerState, Building, Animal } from '../../src/shared/state';
 import type { Resource } from '../../src/shared/world';
 import { RESOURCE_TYPES } from '../../src/shared/content';
 
+import type { Environment, Tuning, celestial } from '../../src/shared/environment';
+import type { GraphicsSettings } from '../../src/client/render/settings';
+
 export interface Diagnostics {
+  environment: Environment;
+  tuning: Tuning;
+  celestial: ReturnType<typeof celestial>;
+  animals: Animal[];
+  sandbox: boolean;
+  graphics: GraphicsSettings;
+  effectiveGraphics: GraphicsSettings;
   player: PlayerState;
   look: { yaw: number; pitch: number };
   mutations: Record<string, { health: number; respawnAt: number }>;
@@ -16,10 +26,14 @@ export interface Diagnostics {
   buildings: Building[];
   build: Building;
   renderer: {
+    quality: string;
     fps: number;
     drawCalls: number;
     triangles: number;
     geometries: number;
+    textures: number;
+    programs: number;
+    frameMs: number;
     pixelRatio: number;
   };
 }

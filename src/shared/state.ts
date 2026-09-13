@@ -1,6 +1,9 @@
 import type { BuildingKind, Inventory, ItemId, MilestoneId } from './content';
 import { RESOURCE_TYPES } from './content';
-import { random } from './math';
+import { createEnvironment, DEFAULT_TUNING } from './environment';
+import type { Environment, Tuning } from './environment';
+import type { Species } from './content';
+import { populateWildlife } from './wildlife';
 import { SPAWN, terrainHeight, WORLD_VERSION } from './world';
 import type { WorldDefinition } from './world';
 
@@ -16,6 +19,7 @@ export interface MoveInput {
   pitch: number;
   sprint: boolean;
   jump: boolean;
+  dive: boolean;
 }
 export const idleInput = (): MoveInput => ({
   forward: 0,
@@ -24,6 +28,7 @@ export const idleInput = (): MoveInput => ({
   pitch: 0,
   sprint: false,
   jump: false,
+  dive: false,
 });
 export interface PlayerState {
   id: string;
@@ -36,6 +41,7 @@ export interface PlayerState {
   hunger: number;
   thirst: number;
   stamina: number;
+  oxygen: number;
   inventory: Inventory;
   equipped: ItemId;
   cooldown: number;
@@ -44,6 +50,7 @@ export interface PlayerState {
   respawn: Vec3;
   deaths: number;
   input: MoveInput;
+  dev: { invincible: boolean; flight: boolean; freeBuild: boolean };
 }
 export interface ResourceState {
   health: number;
@@ -69,6 +76,8 @@ export interface LootBag {
 }
 export interface Animal {
   id: string;
+  species: Species;
+  behavior: 'roam' | 'flee' | 'chase';
   x: number;
   y: number;
   z: number;
@@ -80,7 +89,10 @@ export interface Animal {
   respawnAt: number;
 }
 export interface GameState {
-  version: 1;
+  version: 2;
+  environment: Environment;
+  tuning: Tuning;
+  sandbox: boolean;
   worldVersion: number;
   seed: string;
   tick: number;
@@ -117,6 +129,7 @@ export function createPlayer(id: string, name: string, world: WorldDefinition): 
     hunger: 90,
     thirst: 90,
     stamina: 100,
+    oxygen: 100,
     inventory: { rock: 1, berries: 3 },
     equipped: 'rock',
     cooldown: 0,
@@ -125,33 +138,16 @@ export function createPlayer(id: string, name: string, world: WorldDefinition): 
     respawn: { ...position },
     deaths: 0,
     input: idleInput(),
+    dev: { invincible: false, flight: false, freeBuild: false },
   };
 }
 
 export function createState(world: WorldDefinition): GameState {
-  const rng = random(world.hash + 1234);
-  const animals: Animal[] = [];
-  for (let i = 0; i < 12; i++) {
-    const angle = rng() * Math.PI * 2,
-      radius = 60 + rng() * 95;
-    const x = Math.sin(angle) * radius,
-      z = Math.cos(angle) * radius;
-    if (terrainHeight(x, z, world.hash) < 3 || Math.hypot(x, z - 86) < 45) continue;
-    animals.push({
-      id: `boar${i}`,
-      x,
-      z,
-      y: terrainHeight(x, z, world.hash),
-      homeX: x,
-      homeZ: z,
-      yaw: angle,
-      health: 60,
-      cooldown: 0,
-      respawnAt: 0,
-    });
-  }
   return {
-    version: 1,
+    version: 2,
+    environment: createEnvironment(),
+    tuning: { ...DEFAULT_TUNING },
+    sandbox: false,
     worldVersion: WORLD_VERSION,
     seed: world.seed,
     tick: 0,
@@ -161,7 +157,7 @@ export function createState(world: WorldDefinition): GameState {
     resources: {},
     buildings: [],
     bags: [],
-    animals,
+    animals: populateWildlife(world),
   };
 }
 
