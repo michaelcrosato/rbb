@@ -44,6 +44,7 @@ export class BuildingBatches {
           mat.customProgramCacheKey = () => 'rbb-fire-v1';
         }
         const batch = new THREE.InstancedMesh(source.geometry.clone(), mat, pieces.length);
+        batch.userData.rbbReactive = source.name === 'flame';
         batch.castShadow = source.name !== 'flame';
         batch.receiveShadow = true;
         pieces.forEach((piece, index) => {

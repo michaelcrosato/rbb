@@ -1,0 +1,1220 @@
+{
+  "recordedAt": "2026-09-14T17:24:20.902Z",
+  "method": "Fixed cloudy 09:00 100-piece camp, wet ground, still wind and wildlife; unchanged camera and imported simulation fixture. 6 s warmup (14 s for residency), then 12 half-second samples. GPU median of rolling 30-frame medians; GPU p95 is maximum observed rolling 30-frame p95. This machine only; mobile viewport is desktop GPU emulation. Target estimates exclude shadows, bloom, AO and reflection targets.",
+  "scenes": [
+    {
+      "name": "baseline",
+      "scene": "camp",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 3.99,
+      "p95GpuMs": 9.44,
+      "maxDrawCalls": 246,
+      "maxTriangles": 163160,
+      "textures": 4,
+      "geometries": 122,
+      "pipeline": {
+        "passes": [],
+        "sharedBuffer": false,
+        "estimatedTargetMiB": 0,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "cascadedShadows",
+      "scene": "camp",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "cascadedShadows",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 3.96,
+      "p95GpuMs": 12.72,
+      "maxDrawCalls": 740,
+      "maxTriangles": 383722,
+      "textures": 8,
+      "geometries": 185,
+      "pipeline": {
+        "passes": [],
+        "sharedBuffer": false,
+        "estimatedTargetMiB": 0,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "volumetricClouds",
+      "scene": "camp",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "volumetricClouds",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 5.78,
+      "p95GpuMs": 8.3,
+      "maxDrawCalls": 421,
+      "maxTriangles": 258255,
+      "textures": 12,
+      "geometries": 123,
+      "pipeline": {
+        "passes": ["scene", "volumetric media", "tone mapping / color"],
+        "sharedBuffer": true,
+        "estimatedTargetMiB": 91,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": [
+        "THREE.WebGLProgram: Program Info Log: (198,12-86): warning X3595: gradient instruction used in a loop with varying iteration; partial derivatives may have undefined value\n(198,12-86): warning X3595: gradient instruction used in a loop with varying iteration; partial derivatives may have undefined value\n(419,1): warning X4000: use of potentially uninitialized variable (f_ApplyFXAA)"
+      ]
+    },
+    {
+      "name": "volumetricFog",
+      "scene": "camp",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "volumetricFog",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 5.94,
+      "p95GpuMs": 9.82,
+      "maxDrawCalls": 422,
+      "maxTriangles": 275775,
+      "textures": 12,
+      "geometries": 123,
+      "pipeline": {
+        "passes": ["scene", "volumetric media", "tone mapping / color"],
+        "sharedBuffer": true,
+        "estimatedTargetMiB": 91,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "globalIllumination",
+      "scene": "camp",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "globalIllumination",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 4.53,
+      "p95GpuMs": 9.95,
+      "maxDrawCalls": 364,
+      "maxTriangles": 213256,
+      "textures": 6,
+      "geometries": 174,
+      "pipeline": {
+        "passes": [],
+        "sharedBuffer": false,
+        "estimatedTargetMiB": 0,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": {
+          "ready": 9,
+          "total": 9,
+          "captures": 126,
+          "reading": false,
+          "error": "",
+          "estimatedBytes": 75024
+        },
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "screenSpaceReflections",
+      "scene": "camp",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "screenSpaceReflections",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 5.63,
+      "p95GpuMs": 8.96,
+      "maxDrawCalls": 421,
+      "maxTriangles": 275774,
+      "textures": 9,
+      "geometries": 123,
+      "pipeline": {
+        "passes": ["scene", "reflections", "tone mapping / color"],
+        "sharedBuffer": true,
+        "estimatedTargetMiB": 87,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "temporalUpscaling",
+      "scene": "camp",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "temporalUpscaling",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 4.85,
+      "p95GpuMs": 10.24,
+      "maxDrawCalls": 421,
+      "maxTriangles": 275774,
+      "textures": 11,
+      "geometries": 123,
+      "pipeline": {
+        "passes": ["scene", "tone mapping / color", "temporal resolve"],
+        "sharedBuffer": true,
+        "estimatedTargetMiB": 70.7,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "motionBlur",
+      "scene": "camp",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "motionBlur",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 4.6,
+      "p95GpuMs": 16.26,
+      "maxDrawCalls": 421,
+      "maxTriangles": 275774,
+      "textures": 9,
+      "geometries": 123,
+      "pipeline": {
+        "passes": ["scene", "motion blur", "tone mapping / color"],
+        "sharedBuffer": true,
+        "estimatedTargetMiB": 87,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "depthOfField",
+      "scene": "camp",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "depthOfField",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 5.46,
+      "p95GpuMs": 8.59,
+      "maxDrawCalls": 421,
+      "maxTriangles": 275774,
+      "textures": 9,
+      "geometries": 123,
+      "pipeline": {
+        "passes": ["scene", "depth of field", "tone mapping / color"],
+        "sharedBuffer": true,
+        "estimatedTargetMiB": 87,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "gpuOcclusion",
+      "scene": "camp",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "gpuOcclusion",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 1.96,
+      "p95GpuMs": 5.39,
+      "maxDrawCalls": 429,
+      "maxTriangles": 228386,
+      "textures": 7,
+      "geometries": 123,
+      "pipeline": {
+        "passes": [],
+        "sharedBuffer": true,
+        "estimatedTargetMiB": 39.6,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 255,
+          "residentChunks": 255,
+          "occluded": 87,
+          "pendingQueries": 12,
+          "queries": 8136,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "chunkStreaming",
+      "scene": "camp",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "chunkStreaming",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 4.63,
+      "p95GpuMs": 8.52,
+      "maxDrawCalls": 246,
+      "maxTriangles": 163160,
+      "textures": 4,
+      "geometries": 122,
+      "pipeline": {
+        "passes": [],
+        "sharedBuffer": false,
+        "estimatedTargetMiB": 0,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 255,
+          "residentChunks": 247,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 8,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "all-advanced",
+      "scene": "camp",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "cascadedShadows",
+        "volumetricClouds",
+        "volumetricFog",
+        "globalIllumination",
+        "screenSpaceReflections",
+        "temporalUpscaling",
+        "motionBlur",
+        "depthOfField",
+        "gpuOcclusion",
+        "chunkStreaming",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 6.54,
+      "p95GpuMs": 10.57,
+      "maxDrawCalls": 983,
+      "maxTriangles": 439731,
+      "textures": 20,
+      "geometries": 187,
+      "pipeline": {
+        "passes": [
+          "scene",
+          "reflections",
+          "volumetric media",
+          "depth of field",
+          "motion blur",
+          "tone mapping / color",
+          "temporal resolve"
+        ],
+        "sharedBuffer": true,
+        "estimatedTargetMiB": 72.5,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": {
+          "ready": 9,
+          "total": 9,
+          "captures": 214,
+          "reading": false,
+          "error": "",
+          "estimatedBytes": 75024
+        },
+        "visibility": {
+          "chunks": 255,
+          "residentChunks": 247,
+          "occluded": 87,
+          "pendingQueries": 12,
+          "queries": 12816,
+          "evictions": 8,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "all-effects",
+      "scene": "camp",
+      "quality": "high",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "bloom",
+        "ambientOcclusion",
+        "sunShafts",
+        "lensFlare",
+        "planarReflections",
+        "ambientParticles",
+        "cascadedShadows",
+        "volumetricClouds",
+        "volumetricFog",
+        "globalIllumination",
+        "screenSpaceReflections",
+        "temporalUpscaling",
+        "motionBlur",
+        "depthOfField",
+        "gpuOcclusion",
+        "chunkStreaming",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 8.12,
+      "p95GpuMs": 11.7,
+      "maxDrawCalls": 1518,
+      "maxTriangles": 805681,
+      "textures": 38,
+      "geometries": 195,
+      "pipeline": {
+        "passes": [
+          "scene",
+          "ambient occlusion",
+          "reflections",
+          "volumetric media",
+          "depth of field",
+          "motion blur",
+          "sun shafts / flare",
+          "bloom",
+          "tone mapping / color",
+          "temporal resolve"
+        ],
+        "sharedBuffer": true,
+        "estimatedTargetMiB": 72.5,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": {
+          "ready": 9,
+          "total": 9,
+          "captures": 225,
+          "reading": false,
+          "error": "",
+          "estimatedBytes": 75024
+        },
+        "visibility": {
+          "chunks": 255,
+          "residentChunks": 255,
+          "occluded": 87,
+          "pendingQueries": 12,
+          "queries": 13488,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "coast-base",
+      "scene": "coast",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 4.16,
+      "p95GpuMs": 7.82,
+      "maxDrawCalls": 207,
+      "maxTriangles": 142546,
+      "textures": 4,
+      "geometries": 109,
+      "pipeline": {
+        "passes": [],
+        "sharedBuffer": false,
+        "estimatedTargetMiB": 0,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "coast-ssr",
+      "scene": "coast",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "screenSpaceReflections",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 5.48,
+      "p95GpuMs": 8.61,
+      "maxDrawCalls": 380,
+      "maxTriangles": 259942,
+      "textures": 9,
+      "geometries": 110,
+      "pipeline": {
+        "passes": ["scene", "reflections", "tone mapping / color"],
+        "sharedBuffer": true,
+        "estimatedTargetMiB": 87,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "cloud-base",
+      "scene": "clouds",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 4.55,
+      "p95GpuMs": 12.37,
+      "maxDrawCalls": 174,
+      "maxTriangles": 122260,
+      "textures": 4,
+      "geometries": 88,
+      "pipeline": {
+        "passes": [],
+        "sharedBuffer": false,
+        "estimatedTargetMiB": 0,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "cloud-volume",
+      "scene": "clouds",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "volumetricClouds",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 5.52,
+      "p95GpuMs": 8.02,
+      "maxDrawCalls": 317,
+      "maxTriangles": 222175,
+      "textures": 12,
+      "geometries": 89,
+      "pipeline": {
+        "passes": ["scene", "volumetric media", "tone mapping / color"],
+        "sharedBuffer": true,
+        "estimatedTargetMiB": 91,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "mobile-advanced",
+      "scene": "camp",
+      "quality": "mobile",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 915,
+        "height": 412
+      },
+      "pixelRatio": 1.15,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "volumetricClouds",
+        "volumetricFog",
+        "screenSpaceReflections",
+        "temporalUpscaling",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 3.34,
+      "p95GpuMs": 6.59,
+      "maxDrawCalls": 194,
+      "maxTriangles": 137503,
+      "textures": 12,
+      "geometries": 55,
+      "pipeline": {
+        "passes": [
+          "scene",
+          "reflections",
+          "volumetric media",
+          "tone mapping / color",
+          "temporal resolve"
+        ],
+        "sharedBuffer": true,
+        "estimatedTargetMiB": 17.4,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "low-requested-advanced",
+      "scene": "camp",
+      "quality": "low",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 0.8,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "cascadedShadows",
+        "volumetricClouds",
+        "volumetricFog",
+        "globalIllumination",
+        "screenSpaceReflections",
+        "temporalUpscaling",
+        "motionBlur",
+        "depthOfField",
+        "gpuOcclusion",
+        "chunkStreaming",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 2.75,
+      "p95GpuMs": 6.37,
+      "maxDrawCalls": 89,
+      "maxTriangles": 77674,
+      "textures": 2,
+      "geometries": 52,
+      "pipeline": {
+        "passes": [],
+        "sharedBuffer": false,
+        "estimatedTargetMiB": 0,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": [
+          "shadows",
+          "waterDetails",
+          "localLights",
+          "ambientParticles",
+          "cascadedShadows",
+          "volumetricClouds",
+          "volumetricFog",
+          "globalIllumination",
+          "screenSpaceReflections",
+          "temporalUpscaling",
+          "motionBlur",
+          "depthOfField",
+          "gpuOcclusion",
+          "chunkStreaming"
+        ]
+      },
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "baseline-end",
+      "scene": "camp",
+      "quality": "balanced",
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "pixelRatio": 1,
+      "enabled": [
+        "shadows",
+        "atmosphere",
+        "particles",
+        "wind",
+        "waterDetails",
+        "localLights",
+        "ambientParticles",
+        "gpuTiming",
+        "eyeAdaptation"
+      ],
+      "medianFps": 56,
+      "minimumOneSecondFps": 56,
+      "medianGpuMs": 4.38,
+      "p95GpuMs": 19.75,
+      "maxDrawCalls": 246,
+      "maxTriangles": 163160,
+      "textures": 4,
+      "geometries": 122,
+      "pipeline": {
+        "passes": [],
+        "sharedBuffer": false,
+        "estimatedTargetMiB": 0,
+        "historyReset": "resource changed",
+        "capabilities": {
+          "floatTargets": true,
+          "multipleTargets": true,
+          "timerQueries": true,
+          "maxTextureSize": 16384
+        },
+        "probes": null,
+        "visibility": {
+          "chunks": 0,
+          "residentChunks": 0,
+          "occluded": 0,
+          "pendingQueries": 0,
+          "queries": 0,
+          "evictions": 0,
+          "reloads": 0
+        },
+        "fallback": []
+      },
+      "errors": [],
+      "warnings": []
+    }
+  ]
+}

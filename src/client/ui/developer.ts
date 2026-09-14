@@ -3,6 +3,7 @@ import type { GameState, PlayerState } from '../../shared/state';
 import { WEATHER_IDS } from '../../shared/environment';
 import type { Tuning } from '../../shared/environment';
 import type { RenderSettings } from '../render/renderer';
+import { ADVANCED_FEATURES } from '../render/settings';
 import type { GraphicsSettings } from '../render/settings';
 import { escapeHtml as esc } from './icons';
 
@@ -55,6 +56,17 @@ const field = (
 };
 export function graphicsMarkup(graphics: GraphicsSettings, debug = false): string {
   const labels: Record<string, string> = {
+    cascadedShadows: 'Cascaded shadows',
+    volumetricClouds: 'Volumetric clouds',
+    volumetricFog: 'Volumetric fog',
+    globalIllumination: 'Probe indirect lighting',
+    screenSpaceReflections: 'Screen-space reflections',
+    temporalUpscaling: 'Temporal upscaling',
+    motionBlur: 'Motion blur',
+    depthOfField: 'Depth of field',
+    gpuOcclusion: 'GPU occlusion culling',
+    chunkStreaming: 'Stream distant GPU buffers',
+    gpuTiming: 'Measure GPU frame time',
     eyeAdaptation: 'Eyes adapt to darkness',
     shadows: 'Dynamic shadows (Balanced / High)',
     atmosphere: 'Sky, stars and clouds',
@@ -72,20 +84,60 @@ export function graphicsMarkup(graphics: GraphicsSettings, debug = false): strin
     collisionDebug: 'Collision bounds',
   };
   const numeric: Record<string, [string, number, number, number, string]> = {
+    effectResolution: ['Volume resolution', 0.25, 1, 0.25, 'Fraction of internal resolution'],
+    volumeSteps: ['Volume samples', 8, 64, 8, 'More samples reduce banding'],
+    cloudAltitude: ['Cloud base height', 40, 240, 5, 'Metres above sea level'],
+    cloudThickness: ['Cloud thickness', 15, 120, 5, 'Metres'],
+    fogStrength: ['Volume fog density', 0.1, 3, 0.1, 'Multiplies weather density'],
+    giStrength: ['Indirect light strength', 0, 2, 0.05, 'Diffuse light from nearby surfaces'],
+    reflectionStrength: ['Screen reflection strength', 0, 1, 0.05, 'Wet ground and water'],
+    temporalScale: ['Temporal input scale', 0.5, 1, 0.05, 'Lower values reduce scene pixels'],
+    motionBlurStrength: ['Shutter strength', 0, 1, 0.05, 'Camera and object motion'],
+    focusDistance: ['Focus distance', 1, 150, 1, 'Metres'],
+    aperture: ['Aperture', 0, 0.05, 0.001, '0 keeps everything sharp'],
+    shadowDistance: ['Cascade reach', 80, 500, 20, 'Metres'],
+    shadowCascades: ['Shadow cascades', 2, 4, 1, 'More maps cost more draws and memory'],
+    streamingDistance: ['GPU residency radius', 128, 640, 32, 'Metres; buffers reload on return'],
     exposure: ['Exposure', 0.25, 2.5, 0.05, 'Scene brightness'],
     saturation: ['Saturation', 0, 2, 0.05, 'Optional color grading'],
     contrast: ['Contrast', 0.5, 1.5, 0.05, 'Optional color grading'],
     viewDistance: ['View distance', 0.5, 1.5, 0.1, 'Distant detail'],
     resolutionScale: ['Resolution scale', 0.5, 1.5, 0.1, 'Relative to the quality preset'],
   };
-  return `<p class="muted small">Optional effects use more GPU power. Low suppresses expensive effects and keeps your preferences for other presets. Gameplay and progression stay the same.</p><div class="dev-fields">${Object.entries(
-    graphics,
-  )
-    .filter(([key]) => debug || !['wireframe', 'collisionDebug'].includes(key))
-    .map(([key, value]) =>
-      field(key, value, numeric[key] ?? [labels[key], 0, 1, 1, ''], 'graphics'),
-    )
-    .join('')}</div>`;
+  const advanced = new Set<string>([
+    ...ADVANCED_FEATURES,
+    'effectResolution',
+    'volumeSteps',
+    'cloudAltitude',
+    'cloudThickness',
+    'fogStrength',
+    'giStrength',
+    'reflectionStrength',
+    'temporalScale',
+    'motionBlurStrength',
+    'focusDistance',
+    'aperture',
+    'shadowDistance',
+    'shadowCascades',
+    'streamingDistance',
+  ]);
+  const fields = (extra: boolean) =>
+    Object.entries(graphics)
+      .filter(([key]) => advanced.has(key) === extra)
+      .filter(
+        ([key]) =>
+          key !== 'bufferView' && (debug || !['wireframe', 'collisionDebug'].includes(key)),
+      )
+      .map(([key, value]) =>
+        field(
+          key,
+          value as number | boolean,
+          numeric[key] ?? [labels[key], 0, 1, 1, ''],
+          'graphics',
+        ),
+      )
+      .join('');
+  return `<p class="muted small">Optional effects use more GPU power. Low suppresses expensive effects and keeps your preferences for other presets. Gameplay and progression stay the same.</p><div class="dev-fields">${fields(false)}</div><details><summary>Advanced rendering · off by default</summary><p class="muted small">Try each effect separately. Higher presets never enable these automatically. Temporal upscaling trades detail for speed; camera blur is a style preference.</p><div class="dev-fields">${fields(true)}</div></details>${debug ? `<label class="dev-field"><span>Shared buffer view</span><select data-graphics="bufferView">${['off', 'depth', 'normals', 'velocity'].map((value) => `<option ${graphics.bufferView === value ? 'selected' : ''}>${value}</option>`).join('')}</select><small>Rendering diagnostics; off restores the final image</small></label>` : ''}<p id="rendering-status" class="muted small" role="status"></p>`;
 }
 export function developerMarkup(
   state: GameState,

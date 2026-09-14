@@ -157,12 +157,16 @@ export class DeveloperControls {
     this.previousTuning = structuredClone(this.options.session()!.state.tuning);
     this.execute({ action: 'configure', tuning });
   }
-  private values(attribute: string): Record<string, number | boolean> {
+  private values(attribute: string): Record<string, number | boolean | string> {
     return Object.fromEntries(
       [...this.options.root.querySelectorAll<HTMLInputElement>(`[data-${attribute}]`)].map(
         (input) => [
           input.getAttribute(`data-${attribute}`)!,
-          input.type === 'checkbox' ? input.checked : Number(input.value),
+          input.tagName === 'SELECT'
+            ? input.value
+            : input.type === 'checkbox'
+              ? input.checked
+              : Number(input.value),
         ],
       ),
     );

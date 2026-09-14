@@ -7,7 +7,7 @@ const vertex = `varying vec3 vDirection; void main(){vDirection=position; gl_Pos
 const fragment = `
 varying vec3 vDirection;
 uniform vec3 zenith,horizon,sunDirection,moonDirection;
-uniform float daylight,twilight,phase,moonSize,cloud,time,stars;
+uniform float daylight,twilight,phase,moonSize,cloud,time,stars,volumeClouds;
 float hash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
 float noise(vec3 p){vec3 i=floor(p),f=fract(p); f=f*f*(3.-2.*f);
 return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);}
@@ -34,7 +34,7 @@ void main(){
  // A continuous overcast layer closes the gaps between the faceted cloud banks.
  float n=noise(d*9.+vec3(time*.003,0.,time*.002));
  float layer=smoothstep(1.-cloud*.85,1.,n*.65+cloud*.55)*smoothstep(-.05,.18,d.y);
- color=mix(color,mix(vec3(.015,.021,.035),vec3(.43,.48,.5),daylight),layer*.93);
+ color=mix(color,mix(vec3(.015,.021,.035),vec3(.43,.48,.5),daylight),layer*.93*(1.-volumeClouds));
  gl_FragColor=vec4(color,1.);
  #include <tonemapping_fragment>
  #include <colorspace_fragment>
@@ -67,6 +67,7 @@ export class Atmosphere {
           phase: { value: 0.5 },
           moonSize: { value: 1 },
           cloud: { value: 0 },
+          volumeClouds: { value: 0 },
           time: { value: 0 },
           stars: { value: 0 },
         },

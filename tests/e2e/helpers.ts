@@ -6,6 +6,7 @@ import { RESOURCE_TYPES } from '../../src/shared/content';
 
 import type { Environment, Tuning, celestial } from '../../src/shared/environment';
 import type { GraphicsSettings } from '../../src/client/render/settings';
+import type { WorldRenderer } from '../../src/client/render/renderer';
 
 export interface Diagnostics {
   environment: Environment;
@@ -13,8 +14,10 @@ export interface Diagnostics {
   celestial: ReturnType<typeof celestial>;
   animals: Animal[];
   sandbox: boolean;
+  devAllowed: boolean;
   graphics: GraphicsSettings;
   effectiveGraphics: GraphicsSettings;
+  pipeline: WorldRenderer['pipeline'];
   player: PlayerState;
   look: { yaw: number; pitch: number };
   mutations: Record<string, { health: number; respawnAt: number }>;
@@ -35,6 +38,8 @@ export interface Diagnostics {
     programs: number;
     frameMs: number;
     pixelRatio: number;
+    gpuMs: number | null;
+    gpuP95Ms: number | null;
   };
 }
 export const diagnostics = (page: Page): Promise<Diagnostics> =>

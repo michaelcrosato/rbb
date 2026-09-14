@@ -28,6 +28,12 @@ import { animateWildlife, wildlifeModel } from './wildlife';
 import { createEnvironment, DEFAULT_TUNING } from '../../shared/environment';
 import type { Environment, Tuning } from '../../shared/environment';
 import { AmbientParticles } from './motes';
+import { GpuTimer, renderCapabilities } from './capabilities';
+import type { RenderCapabilities } from './capabilities';
+import { MaterialHooks } from './material-hooks';
+import { CascadedShadows } from './cascades';
+import { IrradianceProbes } from './probes';
+import { ChunkVisibility } from './visibility';
 
 export type Quality = 'auto' | 'high' | 'balanced' | 'mobile' | 'low';
 export interface RenderSettings {
@@ -68,6 +74,29 @@ export class WorldRenderer {
   readonly raycaster = new THREE.Raycaster();
   readonly sun = new THREE.DirectionalLight('#fff0cb', 2.6);
   readonly ambient = new THREE.HemisphereLight('#d4eaf0', '#79876a', 2.1);
+  readonly capabilities: RenderCapabilities;
+  private readonly timer: GpuTimer;
+  private readonly hooks = new MaterialHooks();
+  private readonly cascades: CascadedShadows;
+  private probes?: IrradianceProbes;
+  private readonly visibility: ChunkVisibility;
+  get effectiveGraphics(): GraphicsSettings {
+    return { ...this.graphics };
+  }
+  get pipeline() {
+    return {
+      passes: [...this.post.passes],
+      sharedBuffer: !!this.post.buffers,
+      estimatedTargetMiB: Math.round((this.post.bytes / 1048576) * 10) / 10,
+      historyReset: this.post.frame.resetReason,
+      capabilities: this.capabilities,
+      probes: this.probes?.stats ?? null,
+      visibility: this.visibility.stats,
+      fallback: Object.entries(this.settings.graphics)
+        .filter(([key, value]) => value !== this.graphics[key as keyof GraphicsSettings])
+        .map(([key]) => key),
+    };
+  }
   readonly stats = {
     fps: 60,
     drawCalls: 0,
@@ -78,6 +107,8 @@ export class WorldRenderer {
     frameMs: 16.67,
     pixelRatio: 1,
     quality: 'balanced',
+    gpuMs: null as number | null,
+    gpuP95Ms: null as number | null,
   };
   private readonly resources = new Map<string, InstanceRef>();
   private readonly buildings = new BuildingBatches();
@@ -103,6 +134,7 @@ export class WorldRenderer {
   private environment: Environment = createEnvironment();
   private tuning: Tuning = { ...DEFAULT_TUNING };
   private camps: Snapshot['buildings'] = [];
+  private buildingSignature = '';
   private readonly debugGroup = new THREE.Group();
   private readonly debugBounds = new THREE.InstancedMesh(
     new THREE.BoxGeometry(),
@@ -130,6 +162,40 @@ export class WorldRenderer {
   private stableSeconds = 0;
   private readonly resizeObserver: ResizeObserver;
   private world: WorldDefinition;
+  private readonly contextLost = (event: Event) => {
+    event.preventDefault();
+    this.post.frame.reset('graphics context lost');
+    this.timer.clear();
+    this.visibility.contextLost();
+    // Detach target/VAO disposal listeners while the old context is still lost.
+    // Disposing these after Three restores its context would delete stale GL handles.
+    this.post.dispose();
+    this.cascades.dispose();
+    this.probes?.dispose();
+    this.probes = undefined;
+    this.ocean.contextLost();
+    // Three's geometry/instance disposal listeners capture the old GL managers.
+    // Retire them now, retaining CPU arrays for restoration and later world replacement.
+    this.scene.traverse((object) => {
+      if (
+        object instanceof THREE.Mesh ||
+        object instanceof THREE.Points ||
+        object instanceof THREE.Line
+      )
+        object.geometry.dispose();
+      if (object instanceof THREE.InstancedMesh) object.dispose();
+    });
+    this.sun.shadow.dispose();
+    this.sun.shadow.map = null;
+    this.atmosphere.moon.shadow.dispose();
+    this.atmosphere.moon.shadow.map = null;
+  };
+  private readonly contextRestored = () => {
+    Object.assign(this.capabilities, renderCapabilities(this.renderer));
+    this.timer.restore();
+    this.applySettings(this.settings);
+    this.post.frame.reset('graphics context restored');
+  };
 
   constructor(
     readonly canvas: HTMLCanvasElement,
@@ -142,6 +208,10 @@ export class WorldRenderer {
       powerPreference: 'high-performance',
     });
     this.renderer.info.autoReset = false;
+    this.capabilities = renderCapabilities(this.renderer);
+    this.timer = new GpuTimer(this.renderer.getContext() as WebGL2RenderingContext);
+    this.cascades = new CascadedShadows(this.camera, this.scene, this.hooks);
+    this.visibility = new ChunkVisibility(this.renderer);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.13;
@@ -162,14 +232,29 @@ export class WorldRenderer {
     this.sun.shadow.bias = -0.00015;
     this.atmosphere = new Atmosphere(this.scene);
     this.ocean = new Ocean(this.scene);
-    this.post = new PostEffects(this.renderer, this.scene, this.camera, [
-      this.atmosphere.sky,
-      this.atmosphere.stars,
-      this.atmosphere.particles,
-      this.motes,
-      this.hand,
-      this.debugGroup,
-    ]);
+    this.post = new PostEffects(
+      this.renderer,
+      this.scene,
+      this.camera,
+      [
+        this.atmosphere.sky,
+        this.atmosphere.stars,
+        this.atmosphere.particles,
+        this.motes,
+        this.hand,
+        this.debugGroup,
+      ],
+      [
+        this.atmosphere.sky,
+        this.atmosphere.stars,
+        this.atmosphere.particles,
+        this.clouds,
+        this.motes,
+        this.debugGroup,
+      ],
+      this.surfaces,
+      this.ocean,
+    );
     this.scene.add(...this.campLights, this.debugGroup, this.motes);
     this.debugBounds.frustumCulled = false;
     this.debugGroup.add(this.debugBounds);
@@ -183,6 +268,7 @@ export class WorldRenderer {
       }),
     );
     this.selection.visible = false;
+    this.selection.userData.rbbExcludeBuffers = true;
     this.scene.add(this.selection);
     this.hand.position.set(0.45, -0.42, -0.72);
     this.camera.add(this.hand);
@@ -193,9 +279,15 @@ export class WorldRenderer {
     this.resizeObserver.observe(canvas);
     this.applySettings(this.settings);
     this.resize();
+    canvas.addEventListener('webglcontextlost', this.contextLost);
+    canvas.addEventListener('webglcontextrestored', this.contextRestored);
   }
 
   setWorld(world: WorldDefinition): void {
+    this.post.dispose();
+    this.probes?.dispose();
+    this.probes = undefined;
+    this.visibility.reset();
     for (const child of [...this.worldGroup.children]) disposeObject(child);
     this.resources.clear();
     this.buildings.reset(this.worldGroup);
@@ -220,6 +312,7 @@ export class WorldRenderer {
           radius: object.geometry.boundingSphere.radius,
           kind: 'terrain',
         });
+    for (const chunk of this.cullables) chunk.object.castShadow = this.graphics.cascadedShadows;
     const buckets = new Map<string, Resource[]>();
     for (const resource of world.resources) {
       const key = `${resource.kind}:${Math.floor(resource.x / 64)},${Math.floor(resource.z / 64)}`;
@@ -267,6 +360,39 @@ export class WorldRenderer {
     }
     propMaterial.dispose();
     this.previousTime = 0;
+    this.registerMaterials();
+    this.post.configure(this.graphics);
+    this.configureInfrastructure();
+    this.resize();
+  }
+
+  private registerMaterials(): void {
+    const register = (object: THREE.Object3D) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials)
+        if (material instanceof THREE.MeshStandardMaterial && this.hooks.register(material)) {
+          this.cascades.attach(material);
+          this.probes?.attach(material);
+        }
+    };
+    this.worldGroup.traverse(register);
+    this.clouds.traverse(register);
+    this.hand.traverse((object) => {
+      object.userData.rbbHand = true;
+      register(object);
+    });
+  }
+
+  private configureInfrastructure(): void {
+    if (this.graphics.globalIllumination) {
+      this.probes ??= new IrradianceProbes(this.renderer, this.scene, this.hooks, this.world);
+      this.probes.configure(this.graphics.giStrength);
+    } else {
+      this.probes?.dispose();
+      this.probes = undefined;
+    }
+    this.visibility.configure(this.graphics, this.cullables);
   }
 
   private makeClouds(): void {
@@ -277,6 +403,7 @@ export class WorldRenderer {
         new THREE.IcosahedronGeometry(0.8, 1).translate(-0.7, 0.1, -0.1),
       ]),
       cloudMaterial = material('#f0eee0', { roughness: 1 });
+    cloudMaterial.userData.rbbNoGI = true;
     const batch = new THREE.InstancedMesh(geometry, cloudMaterial, 90),
       dummy = new THREE.Object3D();
     for (let i = 0; i < 90; i++) {
@@ -296,7 +423,11 @@ export class WorldRenderer {
     const mobile = matchMedia('(pointer: coarse)').matches;
     const tier = settings.quality === 'auto' ? (mobile ? 'mobile' : 'balanced') : settings.quality;
     this.stats.quality = tier;
-    const graphics = (this.graphics = effectiveGraphics(settings.graphics, tier));
+    const graphics = (this.graphics = effectiveGraphics(
+      settings.graphics,
+      tier,
+      this.capabilities,
+    ));
     this.ocean.setQuality(tier);
     this.ocean.configureReflections(graphics.planarReflections, tier);
     this.resolution =
@@ -310,9 +441,16 @@ export class WorldRenderer {
     this.resolution *= graphics.resolutionScale;
     this.maxResolution = this.resolution;
     this.stableSeconds = 0;
-    this.renderer.shadowMap.enabled = tier !== 'mobile' && graphics.shadows;
+    const shadows = (tier !== 'mobile' || graphics.cascadedShadows) && graphics.shadows;
+    if (this.renderer.shadowMap.enabled !== shadows)
+      for (const material of this.hooks.materials) material.needsUpdate = true;
+    this.renderer.shadowMap.enabled = shadows;
     this.renderer.toneMappingExposure = graphics.exposure;
     this.post.configure(graphics);
+    this.cascades.configure(graphics, tier);
+    this.configureInfrastructure();
+    for (const chunk of this.cullables)
+      if (chunk.kind === 'terrain') chunk.object.castShadow = graphics.cascadedShadows;
     this.sun.shadow.mapSize.setScalar(tier === 'high' ? 2048 : 1024);
     this.sun.shadow.map?.dispose();
     this.sun.shadow.map = null;
@@ -326,16 +464,36 @@ export class WorldRenderer {
       height = this.canvas.clientHeight || window.innerHeight;
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-    this.renderer.setPixelRatio(this.resolution);
+    const ratio = Math.min(
+      this.resolution,
+      this.capabilities.maxTextureSize / width,
+      this.capabilities.maxTextureSize / height,
+    );
+    this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(width, height, false);
-    this.stats.pixelRatio = this.resolution;
-    this.post?.resize(width, height, this.resolution);
+    this.stats.pixelRatio = ratio;
+    this.post?.resize(width, height, ratio);
+    this.cascades.resize();
   }
 
   sync(snapshot: Snapshot): void {
+    if (
+      Math.abs(snapshot.environment.hours - this.environment.hours) > 0.1 ||
+      snapshot.environment.weather !== this.environment.weather ||
+      Math.abs(snapshot.environment.wetness - this.environment.wetness) > 0.2
+    ) {
+      this.post.frame.reset('environment changed');
+      this.probes?.invalidate();
+    }
     this.environment = snapshot.environment;
     this.tuning = snapshot.tuning;
     this.camps = snapshot.buildings.filter((b) => b.kind === 'campfire');
+    const buildingSignature = snapshot.buildings.map((building) => building.id).join(',');
+    if (buildingSignature !== this.buildingSignature) {
+      this.buildingSignature = buildingSignature;
+      this.post.frame.reset('construction changed');
+      this.probes?.invalidate();
+    }
     if (this.settings.graphics.collisionDebug) {
       const dummy = new THREE.Object3D();
       let count = 0;
@@ -383,6 +541,8 @@ export class WorldRenderer {
     for (const [id, ref] of this.resources) {
       const active = !snapshot.resources[id] || snapshot.resources[id].health > 0;
       if (ref.active !== active) {
+        this.post.frame.reset('resource changed');
+        this.probes?.invalidate();
         ref.mesh.setMatrixAt(
           ref.index,
           active ? ref.matrix : new THREE.Matrix4().makeScale(0, 0, 0),
@@ -447,6 +607,7 @@ export class WorldRenderer {
       for (const child of [...this.hand.children]) disposeObject(child);
       this.hand.add(toolModel(snapshot.self.equipped));
     }
+    this.registerMaterials();
   }
 
   findTarget(state: GameState, player: PlayerState): Target | null {
@@ -541,6 +702,7 @@ export class WorldRenderer {
     if (this.previewKind !== building.kind || !this.preview) {
       if (this.preview) disposeObject(this.preview);
       this.preview = buildingModel(building.kind);
+      this.preview.userData.rbbExcludeBuffers = true;
       this.previewKind = building.kind;
       this.preview.traverse((o) => {
         if (o instanceof THREE.Mesh) {
@@ -576,6 +738,7 @@ export class WorldRenderer {
     _worldTime: number,
     active: boolean,
   ): void {
+    if (this.renderer.getContext().isContextLost()) return;
     const elapsedFrame = this.previousTime
       ? Math.max(0, (time - this.previousTime) / 1000)
       : 1 / 60;
@@ -634,6 +797,11 @@ export class WorldRenderer {
       graphics.wind,
       this.atmosphere.last.daylight,
     );
+    if (graphics.volumetricFog && this.camera.position.y >= -0.12) {
+      const fog = this.scene.fog as THREE.Fog;
+      fog.near = 450;
+      fog.far = 1000;
+    }
     this.ocean.update(
       this.atmosphere,
       this.scene,
@@ -642,7 +810,9 @@ export class WorldRenderer {
       graphics.waterDetails,
     );
     this.clouds.rotation.y = this.elapsed * 0.001 * this.tuning.windStrength;
-    this.clouds.visible = graphics.atmosphere && this.camera.position.y > 0;
+    this.clouds.visible =
+      graphics.atmosphere && !graphics.volumetricClouds && this.camera.position.y > 0;
+    this.atmosphere.sky.material.uniforms.volumeClouds.value = graphics.volumetricClouds ? 1 : 0;
     const cloudBatch = this.clouds.children[0] as THREE.InstancedMesh;
     cloudBatch.count = Math.round(20 + this.atmosphere.last.weather.cloud * 70);
     const cloudMaterial = cloudBatch.material as THREE.MeshStandardMaterial;
@@ -720,6 +890,12 @@ export class WorldRenderer {
     }
     this.renderer.info.reset();
     this.camera.updateMatrixWorld();
+    this.cascades.update(this.sun, this.atmosphere.moon);
+    this.timer.begin(graphics.gpuTiming);
+    if (this.camera.position.y < -0.12 !== this.post.frame.previousPosition.y < -0.12)
+      this.post.frame.reset('water boundary');
+    this.post.begin(this.elapsed);
+    this.visibility.before(this.camera, dt, this.post.frame.cut);
     this.ocean.renderReflection(this.renderer, this.scene, this.camera, [
       this.hand,
       this.atmosphere.particles,
@@ -732,11 +908,40 @@ export class WorldRenderer {
       this.atmosphere.last.sun,
       graphics.atmosphere ? this.atmosphere.last.sunlight : 0,
     );
+    this.post.updateMedia(
+      this.atmosphere,
+      this.tuning,
+      this.elapsed,
+      this.cascades.active ? this.cascades.lights : [this.sun, this.atmosphere.moon],
+      this.campLights,
+    );
     this.post.render(dt);
+    this.visibility.after(this.camera, this.post.buffers);
+    this.probes?.update(
+      this.camera.position,
+      dt,
+      [
+        this.hand,
+        this.ocean.mesh,
+        this.atmosphere.sky,
+        this.atmosphere.stars,
+        this.atmosphere.particles,
+        this.clouds,
+        this.motes,
+        this.debugGroup,
+        this.selection,
+        ...(this.preview ? [this.preview] : []),
+      ],
+      this.cullables,
+    );
+    this.post.end();
+    this.timer.end();
     this.frameCount++;
     this.frameTime += elapsedFrame;
     if (this.frameTime >= 1) {
       this.stats.fps = Math.round(this.frameCount / this.frameTime);
+      this.stats.gpuMs = this.timer.milliseconds;
+      this.stats.gpuP95Ms = this.timer.p95Milliseconds;
       this.stats.drawCalls = this.renderer.info.render.calls;
       this.stats.triangles = this.renderer.info.render.triangles;
       this.stats.geometries = this.renderer.info.memory.geometries;
@@ -770,8 +975,14 @@ export class WorldRenderer {
   }
 
   dispose(): void {
+    this.canvas.removeEventListener('webglcontextlost', this.contextLost);
+    this.canvas.removeEventListener('webglcontextrestored', this.contextRestored);
     this.resizeObserver.disconnect();
     this.post.dispose();
+    this.cascades.dispose();
+    this.probes?.dispose();
+    this.visibility.dispose();
+    this.timer.clear();
     this.ocean.dispose();
     disposeObject(this.scene);
     this.renderer.dispose();

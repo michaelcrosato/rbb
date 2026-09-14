@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { graphicsSchema, DEFAULT_GRAPHICS, effectiveGraphics } from './render/settings';
+import { graphicsSchema, DEFAULT_GRAPHICS } from './render/settings';
 import { DeveloperControls } from './developer';
 import { buildCandidate, validateBuild } from '../shared/building';
 import type { BuildingKind, ItemId, RecipeId } from '../shared/content';
@@ -116,7 +116,12 @@ export class Game {
     document.addEventListener(
       'pointerlockchange',
       () => {
-        if (!document.pointerLockElement && this.session && !this.ui.panel) this.openPanel('pause');
+        // A slow pointer-lock request can finish after the player opens a panel.
+        // Release that late grant so the canvas cannot capture clicks meant for controls.
+        if (document.pointerLockElement && (this.ui.panel || !this.session))
+          document.exitPointerLock();
+        else if (!document.pointerLockElement && this.session && !this.ui.panel)
+          this.openPanel('pause');
       },
       { signal },
     );
@@ -140,10 +145,17 @@ export class Game {
       (e) => {
         e.preventDefault();
         this.openPanel('pause');
-        if (this.session?.mode === 'online') this.session.close();
         this.ui.fatal(
-          'The graphics context was interrupted. Your latest progress has been saved where storage is available. Reload to restore the world.',
+          'The graphics context was interrupted. Waiting for your browser to restore it. Your latest progress has been saved where storage is available; you can also reload the game.',
         );
+      },
+      { signal },
+    );
+    this.ui.canvas.addEventListener(
+      'webglcontextrestored',
+      () => {
+        this.ui.root.querySelector<HTMLElement>('#fatal')!.hidden = true;
+        this.ui.toast('Graphics restored. Your rendering preferences were kept.');
       },
       { signal },
     );
@@ -259,7 +271,11 @@ export class Game {
       root.querySelectorAll<HTMLInputElement>('[data-graphics]').forEach((input) => {
         Object.assign(graphics, {
           [input.dataset.graphics!]:
-            input.type === 'checkbox' ? input.checked : Number(input.value),
+            input.tagName === 'SELECT'
+              ? input.value
+              : input.type === 'checkbox'
+                ? input.checked
+                : Number(input.value),
         });
       });
       const validation = graphicsSchema.safeParse(graphics);
@@ -546,7 +562,13 @@ export class Game {
     stats.hidden = !this.settings.showStats;
     if (this.settings.showStats) {
       const s = this.renderer.stats;
-      stats.textContent = `${s.fps} FPS · ${s.quality} · ${s.pixelRatio.toFixed(2)}×\n${s.drawCalls} draws · ${Math.round(s.triangles / 1000)}k triangles\n${s.geometries} geometries · Three.js r186\n${session ? `${session.state.tick} ticks · ${session.mode}` : 'World preview'}`;
+      stats.textContent = `${s.fps} FPS · ${s.quality} · ${s.pixelRatio.toFixed(2)}×\n${s.drawCalls} draws · ${Math.round(s.triangles / 1000)}k triangles\n${s.geometries} geometries${s.gpuMs === null ? '' : ` · GPU ${s.gpuMs.toFixed(2)} ms`}\n${session ? `${session.state.tick} ticks · ${session.mode}` : 'World preview'}`;
+    }
+    const renderingStatus = this.ui.root.querySelector('#rendering-status');
+    if (renderingStatus) {
+      const p = this.renderer.pipeline,
+        gpu = this.renderer.stats.gpuMs;
+      renderingStatus.textContent = `${p.passes.length ? p.passes.join(' → ') : 'Direct scene rendering'}. ${p.estimatedTargetMiB} MiB in shared scene, volume and history targets${gpu === null ? '' : ` · GPU ${gpu.toFixed(2)} ms`}.${p.probes ? ` Probes: ${p.probes.ready}/${p.probes.total}${p.probes.error ? ` (${p.probes.error})` : ''}.` : ''}${p.visibility.chunks ? ` Visibility: ${p.visibility.occluded} hidden · ${p.visibility.evictions} buffer releases · ${p.visibility.reloads} reloads.` : ''}${p.fallback.length ? ` Suppressed by ${this.renderer.stats.quality === 'low' ? 'Low quality' : 'device capabilities'}: ${p.fallback.join(', ')}. Your preferences are retained.` : ''}${this.settings.graphics.gpuTiming && !p.capabilities.timerQueries ? ' GPU timer is unavailable on this device.' : ''}`;
     }
     this.request = requestAnimationFrame((t) => this.frame(t));
   }
@@ -554,7 +576,7 @@ export class Game {
   diagnostics(): unknown {
     const p = this.player();
     return structuredClone({
-      version: '0.2.0',
+      version: '0.3.0',
       environment: this.session?.state.environment,
       tuning: this.session?.state.tuning,
       animals: this.session?.state.animals,
@@ -562,7 +584,8 @@ export class Game {
       celestial: this.renderer.atmosphere.last,
       devAllowed: this.session?.devAllowed,
       graphics: this.settings.graphics,
-      effectiveGraphics: effectiveGraphics(this.settings.graphics, this.renderer.stats.quality),
+      effectiveGraphics: this.renderer.effectiveGraphics,
+      pipeline: this.renderer.pipeline,
       renderer: this.renderer.stats,
       panel: this.ui.panel,
       mode: this.session?.mode,

@@ -1,8 +1,24 @@
 # Alpha verification ledger
 
-Living-world 0.2 verification recorded on 2026-09-12 Pacific (2026-09-13 UTC). This ledger distinguishes implementation, automated evidence, and physical-device QA. The [public CI history](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml) records checks for each revision.
+Advanced rendering 0.3 verification recorded on 2026-09-14 Pacific. This ledger distinguishes implementation, automated evidence, and physical-device QA. The [public CI history](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml) records checks for each revision. The older 0.2 evidence is retained below as a historical baseline.
 
-## Executed so far
+## Advanced rendering 0.3
+
+- TypeScript, ESLint, 52 unit/integration tests, and the production client/server builds pass on Windows / Node 24.20.0. The six new rendering tests cover opt-in defaults/legacy settings, Low preference preservation, unavailable capabilities, live shared texture/matrix references, camera jitter/history, and independent material adapters.
+- All **16 Playwright scenarios pass** locally. Coverage adds the combined advanced graph and old effects; camera/water/environment history resets; Low inventory, milestone and animal-population parity; repeated target allocation/release; visible normal/velocity inputs; distant buffer release and upload on return; browser context restoration and later world replacement; touch orientation; and ordinary-server graphics controls without sandbox mutations. The same scenarios retain real controls and read-only diagnostics.
+- All five advanced scenarios passed with forced SwiftShader as well: composition/Low, residency/reload, target lifetimes, context restoration/later world replacement and ordinary-server graphics. These use the same shaders with bounded pixel/sample budgets; they do not substitute for physical-device quality/performance checks.
+- The final **20-case hardware benchmark** covers each advanced option, all advanced together, High with every optional effect, coast/cloud views, mobile viewport and Low suppression. It records asynchronous GPU timing and a repeated baseline control. [Raw results](benchmark-0.3.json) and [before/after images, costs and interpretation](rendering-pipeline.md) accompany the implementation. The development GPU is an RTX 4070 SUPER; every case was frame-paced near 56 FPS. No 3070 Ti/S25 result is claimed.
+- Visual and resource inspection caught and fixed shared uniforms being cloned by `ShaderPass`, stale material uniforms after disabling/re-enabling adapters, first-reflection comparison samplers before shadow maps existed, and occlusion hiding contributors needed by other cameras/shadows. Repeated temporal/volume toggles return the texture count to baseline; all optional post targets are released when disabled.
+- Production verification also exposed a delayed pointer-lock grant arriving after the developer panel opened. The `pointerlockchange` handler releases that grant so controls retain mouse input. Context recovery rebuilds render resources and keeps the online connection; solo pauses in the menu, while shared worlds continue running.
+- The built 0.3 client on port 4175 passed a Chrome smoke check with an isolated protocol-2 server: production diagnostics are absent; advanced defaults are off; all nine probes initialize; solo developer controls work; ordinary servers reject developer mutations while allowing local graphics; context restoration retains the connection; and returning to the saved solo world still works. No browser/WebGL errors were reported. Recovery retires old target, geometry and instance disposal listeners while the context is lost and re-enables extensions after restoration, avoiding stale-handle cleanup later.
+- Benchmark browser exceptions and WebGL validation errors are zero. A single ANGLE warning log in the installed FXAA shader remains recorded; its gradient/temporary warnings did not prevent rendering. This is not a claim of warning-free compilation on every driver.
+- Save version 2, world version 1 and protocol 2 are unchanged. All advanced switches default off even on High, and rendering preferences remain device-local. Physical-device soak tests and the advanced guide's remaining quality limits are still open.
+
+## Living-world 0.2 historical verification
+
+Recorded on 2026-09-12 Pacific (2026-09-13 UTC).
+
+### Executed for 0.2
 
 - Three.js `0.186.0` and matching types verified against the npm registry on 2026-09-12.
 - TypeScript and ESLint pass on Windows / Node 24.20.0.
@@ -24,7 +40,7 @@ A navigation probe with 400 ms delayed key releases also passed the original 0.7
 
 The long gather/craft/build journey and environment control journeys select Mobile with 50% resolution scale through Settings on every platform. The first 0.2 Linux run spent roughly seven seconds per UI action at full resolution and exhausted the scenario timeout, without a failed feature assertion. Bounding pixel cost keeps the full WebGL/effect pipeline and gameplay assertions while making these controls practical on GPU-free runners. Desktop rendering cost and full-resolution visual evidence are recorded separately by the benchmark below.
 
-## Repeatable rendering workload
+### 0.2 rendering workload
 
 `npm run benchmark` (with the dev server running) imports validated 100-piece camp and storm-coast fixtures through the actual save UI, warms each scene, records 12 samples and captures screenshots. It covers Balanced, Mobile, Low and High with every optional effect enabled. It defaults to installed Chrome with hardware rendering; `npm run benchmark -- http://127.0.0.1:5173 --software` explicitly selects the software baseline. Inspect the recorded GPU string before interpreting FPS. Evidence is written to `.artifacts/benchmark/`.
 
@@ -54,7 +70,7 @@ Human device QA should record browser version, exact GPU/phone, viewport, preset
 - Remote snapshots are 10 Hz. Camera and wildlife interpolate; remote survivor interpolation and client prediction remain future work. Internet latency is therefore visible in movement.
 - Weather is visual/environmental; temperature, slippery surfaces and weather-driven needs are future work. Ocean waves do not displace gameplay physics. Advanced rendering limitations and deferred techniques are listed in the [feature matrix](rendering-and-world.md).
 - Server limit: 16 simultaneous clients, 512 registered survivors, 512 building pieces. This is a single-process SQLite deployment.
-- The world is a finite island, with chunk culling rather than unbounded streaming.
+- The world is a finite island, with chunk culling and optional GPU-buffer residency rather than unbounded world streaming.
 - Saves are origin-local, with one active solo slot and a previous healthy backup. Export before changing browser/device or clearing site data.
 - The local Docker daemon is not running; the image build/restart verification was executed successfully in GitHub CI.
 - Production Vercel publication and real hardware performance are not claimed by the static build alone.
@@ -65,6 +81,7 @@ Human device QA should record browser version, exact GPU/phone, viewport, preset
 npm run check
 npm run test:e2e
 npm run format:check
+npm run benchmark:rendering # dev server + installed Chrome; -- --software for SwiftShader
 ```
 
 For browser failures, inspect the retained Playwright trace and screenshot. Unit fixtures may construct domain state; browser tests navigate with real mouse, keyboard and touch input and read diagnostics without mutating the game.

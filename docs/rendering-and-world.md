@@ -1,6 +1,8 @@
 # Rendering and living world
 
-RBB 0.2 keeps the faceted island style and adds independent outdoor rendering systems. The targets are **RTX 3070 Ti at 1080p** and **Galaxy S25**, with a separate Low preset for older hardware. Those targets still require physical-device measurements; see [QA](qa.md).
+RBB 0.3 keeps the faceted island style and adds independent outdoor rendering systems. The targets are **RTX 3070 Ti at 1080p** and **Galaxy S25**, with a separate Low preset for older hardware. Those targets still require physical-device measurements; see [QA](qa.md).
+
+The new [advanced rendering guide](rendering-pipeline.md) explains cascaded shadows, volumetric clouds/fog, indirect-light probes, screen-space reflections, temporal upscaling, motion blur, depth of field and GPU visibility/residency. Every new switch is **off by default**, including on High. It includes the shared pipeline, comparisons, measurements, implementation decisions and remaining limits.
 
 ![Moonlit meadow with directional shadows and fireflies](images/moonlit-meadow.png)
 
@@ -11,7 +13,7 @@ RBB 0.2 keeps the faceted island style and adds independent outdoor rendering sy
 | Sun and moon          | Continuous celestial directions, latitude and season, visible discs, phased/cratered moon, matching directional lights and moving shadows | One active directional shadow caster; a 120 m square shadow region follows the camera                                       |
 | Night and atmosphere  | Gradient sky, dawn/dusk glow, 1,500 rotating/twinkling stars, blue night fill, optional gradual eye adaptation                            | Analytic atmosphere; exposure adaptation follows daylight rather than reading back screen luminance                         |
 | Weather               | Clear, cloudy, fog, rain, storm and snow; smooth transitions; deterministic automatic choices                                             | Shared state and visibility cues remain on every quality tier                                                               |
-| Clouds and wind       | Instanced faceted cloud banks, continuous overcast layer, foliage bending with matching shadow deformation                                | Clouds are stylized meshes plus a sky shader, not volumetric ray marching                                                   |
+| Clouds and wind       | Instanced faceted cloud banks, continuous overcast layer, foliage bending with matching shadow deformation                                | This is the default cloud model; optional volumetric clouds replace it                                                      |
 | Precipitation         | Wind-driven rain streaks, snowflakes, underwater bubbles, storm flashes and procedural thunder                                            | Bounded particle batch: 180 Low / 500 Mobile / 1,800 desktop                                                                |
 | Ground and foliage    | Accumulating wetness, lower wet roughness, snow on upward faces, animated underwater caustics                                             | Shader effects on terrain and resource materials; no deformable snow or puddle geometry                                     |
 | Ocean                 | Depth-colored water, wave displacement, normal ripples, Fresnel sky/sun/moon reflections and shoreline foam                               | Cheap analytic reflection is the baseline; water physics uses a flat sea level                                              |
@@ -33,7 +35,7 @@ RBB 0.2 keeps the faceted island style and adds independent outdoor rendering sy
 | Balanced | 1.4                              | 1,024 px                    | 128                 | 380 m                   |
 | High     | 1.75                             | Sun 2,048 px; moon 1,024 px | 192                 | 560 m                   |
 
-Ratios are capped by device pixel ratio; view-distance and resolution multipliers are adjustable. Auto chooses Mobile for coarse-pointer devices and Balanced otherwise, reduces resolution below 42 FPS, and recovers gradually after sustained 58+ FPS. Low suppresses post effects, planar reflections, decorative particles, local lights and water detail while retaining saved preferences for the other presets.
+Ratios are capped by device pixel ratio and render-target size; view-distance and resolution multipliers are adjustable. Auto chooses Mobile for coarse-pointer devices and Balanced otherwise, reduces resolution below 42 FPS, and recovers gradually after sustained 58+ FPS. Low suppresses post effects, planar reflections, decorative particles, local lights, water detail and every advanced switch while retaining saved preferences. Explicit cascaded shadows can enable directional shadows on Mobile. The enhanced-effects button does not select the advanced switches.
 
 Quality settings never enter shared state. Low retains the same resources, collision, animal population, AI, damage, needs, recipes, inventory, milestones and progression. RBB currently has milestones rather than a ranked score. Shorter draw distances affect distant presentation; they do not despawn simulation entities. Only explicit developer mutations mark an expedition as a sandbox.
 
@@ -51,7 +53,7 @@ Open **F2**, or **Pause → Developer tools** on keyboard and touch. The world k
 
 - **Quick tools:** seek time, freeze/accelerate sky, choose weather and moon phase, face sun/moon, heal, replace pack with a bounded test kit, return to Haven/coast, toggle invincibility/flight/free building, spawn wildlife, regrow resources, step one or ten seconds, capture/restore checkpoints. Flight follows look direction with W; hold Space/Jump to rise and C/Dive to descend.
 - **World variables:** 27 validated controls for celestial motion, weather, wind, water, movement, needs, damage, gathering and wildlife. Apply several values together, restore defaults, undo the last tuning change, preview wet/snowy surfaces, and save/load up to ten named variations. Variation JSON includes world tuning and graphics preferences and can be exported/imported.
-- **Rendering:** the normal effects plus wireframe and nearby collision bounds. Bounds are conservative visualization boxes, not an exact rendering of every collision shape.
+- **Rendering:** normal effects, the advanced opt-in group, GPU timing, active passes/fallbacks, probe and residency counters, shared depth/normal/velocity views, wireframe and collision bounds. Bounds are conservative visualization boxes, not an exact rendering of every collision shape.
 - **Inspector:** select nearby animals/buildings/bags, inspect state, travel to or remove an entity, use precise X/Z travel and grant bounded inventory items.
 
 Solo captures a full recovery checkpoint before the first world mutation. Checkpoints and variations persist in browser storage when available; failures are reported. Restoring the checkpoint restores the expedition and its sandbox status. Exports remain the portable backup. Free building skips material cost but preserves placement validation and world limits; inventory grants preserve the normal carry limit.
@@ -68,6 +70,6 @@ The default quiet-frontier population is **56 animals: 42 land and 14 marine**. 
 
 Save version 2 persists environment, tuning, oxygen, species and developer flags. Explicit v1 migration retains the existing island, inventory, buildings, timers and boars, then seeds the added species. World-generation version remains 1. Network protocol is now 2: update clients and dedicated servers together. Old clients are rejected cleanly rather than interpreting the new state incorrectly.
 
-## Deliberately deferred
+## Further rendering work
 
-Ray tracing, global illumination, fully volumetric clouds/fog, cascaded long-distance shadows, screen-space reflections, temporal upscaling, motion blur/depth of field, and GPU-driven world streaming are not implemented. They need target-device profiling and stronger use cases; the current finite low-poly island benefits more from bounded, independently switchable effects. The renderer's atmosphere, surface, wildlife and post-processing modules provide places to add them without coupling graphics to survival rules. Revisit after real 3070 Ti/S25 playtests or when mature examples justify the cost.
+The non-ray-traced techniques from the 0.2 deferred list now have implementations documented in the [advanced guide](rendering-pipeline.md). Their present limits matter: probes are approximate diffuse lighting; screen reflections cannot see off-screen objects; temporal reconstruction is a custom implementation; visibility/residency retains the finite CPU world. Hardware ray tracing, multi-layer/visibility-aware probes, cloud shadows on terrain, a larger-world generation/network streaming system and GPU indirect submission remain future work. Physical-device profiling should guide the next investment.

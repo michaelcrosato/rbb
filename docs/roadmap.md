@@ -25,6 +25,15 @@ Acceptance evidence and measured limits are recorded in [QA](qa.md). Physical RT
 
 The [rendering matrix](rendering-and-world.md) records implemented effects and deferred techniques. Physical RTX 3070 Ti/S25 profiling remains the next evidence gate; optional effects are not a claim of target-device frame rate.
 
+## Advanced rendering foundation · 0.3
+
+- [x] Independent, default-off cascades, volume clouds/fog, diffuse probes, SSR, temporal upscaling, motion blur and depth of field.
+- [x] Shared depth/normal/motion buffers, history invalidation, material adapters and capability fallbacks.
+- [x] Asynchronous GPU timing, conservative visibility queries and finite-island GPU buffer residency/reload.
+- [x] Expanded [implementation guide](rendering-pipeline.md), comparison workload and lifecycle/Low-parity browser coverage.
+
+These implementations have bounded budgets and documented quality limits. Physical-device profiling, probe visibility/vertical layers, cloud-to-ground shadows, stronger temporal masks/reconstruction and larger-world streaming remain follow-up work.
+
 ## Subsequent iterations
 
-Human QA should set priorities after this foundation. Candidate systems: modular building interiors/doors, storage permissions, dedicated-server accounts, PvP and combat balance, tool durability, technology trees, farming, cooking queues, temperature/weather gameplay, more complex animal ecology, spatial interest management, client prediction/reconciliation, world sharding and moderation. Expensive rendering techniques such as ray tracing and volumetric clouds can wait for measured need and mature examples.
+Human QA should set priorities after this foundation. Candidate systems: modular building interiors/doors, storage permissions, dedicated-server accounts, PvP and combat balance, tool durability, technology trees, farming, cooking queues, temperature/weather gameplay, more complex animal ecology, spatial interest management, client prediction/reconciliation, world sharding and moderation. Hardware ray tracing can wait for measured need and mature examples.

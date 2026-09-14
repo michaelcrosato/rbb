@@ -42,6 +42,8 @@ export class SurfaceEffects {
     );
   }
   apply(material: THREE.MeshStandardMaterial, wind = false, height = 8): void {
+    material.userData.rbbSurface = true;
+    material.userData.rbbWindHeight = wind ? height : 0;
     material.onBeforeCompile = (shader) => {
       this.vertex(shader, wind, height);
       shader.fragmentShader = `uniform float surfaceTime,surfaceWet,surfaceSnow,surfaceDay;varying vec3 vSurfaceWorld;varying float vSurfaceUp;\n${shader.fragmentShader}`;
@@ -137,6 +139,7 @@ export class Ocean {
       }),
     );
     this.mesh.frustumCulled = false;
+    this.mesh.userData.rbbOcean = true;
     scene.add(this.mesh);
   }
   setWorld(world: WorldDefinition): void {
@@ -193,6 +196,11 @@ export class Ocean {
       this.mesh.material.uniforms.reflectionMap.value = this.reflector.getRenderTarget().texture;
     }
   }
+  contextLost(): void {
+    this.configureReflections(false, 'balanced');
+    this.heightMap?.dispose();
+    if (this.heightMap) this.heightMap.needsUpdate = true;
+  }
   renderReflection(
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
@@ -205,6 +213,16 @@ export class Ocean {
       camera.position.y < 0.1 ||
       camera.position.y > 70 ||
       terrainHeight(camera.position.x, camera.position.z, this.worldHash) > 12
+    )
+      return;
+    // Reflector freezes shadow updates. The first reflection must wait until the main
+    // view has allocated comparison depth maps for newly enabled sun/moon/cascades.
+    if (
+      renderer.shadowMap.enabled &&
+      scene.children.some(
+        (object) =>
+          object instanceof THREE.DirectionalLight && object.castShadow && !object.shadow.map,
+      )
     )
       return;
     const objects = [this.mesh, ...excluded],

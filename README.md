@@ -6,7 +6,7 @@ A low-poly survival sandbox built on **Three.js r186**, TypeScript, and a determ
 
 Explore a seeded island, gather materials, craft better tools, build a camp, and survive. Start a solo expedition immediately or connect to a persistent cooperative world. This is an expandable foundation alpha, not a complete Rust clone.
 
-![The running 0.2 alpha: faceted coastal pines and their optional water reflections](docs/images/coastal-reflections.png)
+![Faceted coastal pines and their optional water reflections](docs/images/coastal-reflections.png)
 
 ## Run locally
 
@@ -52,6 +52,7 @@ Haven meadow has guaranteed wood, stone, flax, berries, and a freshwater spring 
 
 - 640 × 640 m seeded heightfield with matching triangle collision, spatial resource queries, chunk culling, instanced foliage/buildings, and adaptive resolution with recovery.
 - Moving sun and moon lighting/shadows, dawn/dusk, phased moon, stars, six weather conditions, foliage wind, wetness/snow, ocean waves/reflections/foam, underwater atmosphere, campfire lights and ambient particles. Optional AO, bloom, sun shafts, lens flare, planar coastal reflections and color controls. [Feature matrix and limits](docs/rendering-and-world.md).
+- Advanced opt-in rendering: cascaded shadows, volumetric clouds/fog, rasterized indirect-light probes, screen reflections, temporal upscaling, motion blur, depth of field, GPU occlusion queries and distant GPU-buffer residency. All default off, including on High. [Pipeline, comparisons, costs and next steps](docs/rendering-pipeline.md).
 - Fixed 30 Hz simulation, movement/jump/swim/dive, oxygen, stamina, hunger/thirst, resource depletion/regrowth, bounded inventories, atomic recipes, building validation, wildlife combat, cooking, healing, death/respawn, and persisted milestones.
 - Five land species (boar, deer, wolf, fox, rabbit) and three marine species (fish, turtle, dolphin), habitat-aware movement, threat responses, animation, loot and respawn.
 - Quick developer tools, 27 editable world variables, named/importable variations, entity inspection and recoverable solo checkpoints. Online mutations require an explicitly enabled test server.
@@ -67,6 +68,7 @@ npm exec playwright -- install chromium
 npm run test:e2e       # real browser controls, WebGL, saves, multiplayer and touch
 npm run format:check
 npm run benchmark      # 100-piece camp workload; dev server + installed Chrome required
+npm run benchmark:rendering # per-effect GPU timing and comparison screenshots
 npm run preview       # serve the production client on :4175
 npm run start:server   # run the built world server
 ```

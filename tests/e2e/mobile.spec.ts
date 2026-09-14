@@ -86,3 +86,38 @@ test('developer controls are usable by touch in portrait and landscape', async (
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test('advanced rendering controls fit touch layouts and survive orientation changes', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error' || /GL_INVALID|WebGL:|cannot be cloned/.test(message.text()))
+      errors.push(message.text());
+  });
+  await startSolo(page, 'mobile');
+  await page.getByRole('button', { name: 'Pause', exact: true }).tap();
+  await page.getByRole('button', { name: 'Developer tools' }).tap();
+  await page.getByRole('tab', { name: 'Rendering', exact: true }).tap();
+  await page.getByText('Advanced rendering · off by default', { exact: true }).tap();
+  for (const key of [
+    'volumetricClouds',
+    'volumetricFog',
+    'screenSpaceReflections',
+    'temporalUpscaling',
+  ])
+    await page.locator(`[data-graphics="${key}"]`).tap();
+  await page.locator('[data-graphics="volumeSteps"]').fill('8');
+  await page.getByRole('button', { name: 'Apply rendering', exact: true }).tap();
+  await expect
+    .poll(async () => (await diagnostics(page)).pipeline.passes)
+    .toContain('temporal resolve');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('advanced-mobile-controls.png') });
+  await page.getByRole('button', { name: 'Close panel' }).tap();
+  await page.setViewportSize({ width: 915, height: 412 });
+  await page.screenshot({ path: testInfo.outputPath('advanced-mobile-landscape.png') });
+  await expect(page.getByRole('button', { name: 'Gather or place' })).toBeInViewport();
+  expect(errors).toEqual([]);
+});

@@ -96,7 +96,7 @@ export async function startWorldServer(options: ServerOptions = {}) {
     res.end(
       JSON.stringify({
         service: 'rbb-world',
-        version: '0.2.0',
+        version: '0.3.0',
         protocol: PROTOCOL_VERSION,
         ready: healthy && !shuttingDown,
         tick: sim.state.tick,
