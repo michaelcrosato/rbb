@@ -47,19 +47,31 @@ export const diagnostics = (page: Page): Promise<Diagnostics> =>
     (window as unknown as { rbbDiagnostics: () => Diagnostics }).rbbDiagnostics(),
   );
 
-export async function startSolo(page: Page, quality: 'auto' | 'mobile' = 'auto'): Promise<void> {
+export async function startSolo(
+  page: Page,
+  quality: 'auto' | 'mobile' = 'auto',
+  activation: 'mouse' | 'keyboard' = 'mouse',
+): Promise<void> {
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Enter the frontier' })).toBeVisible();
   if (quality !== 'auto') {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    const settings = page.getByRole('button', { name: 'Settings', exact: true });
+    if (activation === 'keyboard') await settings.press('Enter');
+    else await settings.click();
     await page.locator('#quality').selectOption(quality);
     // Exercise the full scene/effect pipeline at a bounded pixel cost on GPU-free runners.
     // Hardware-resolution performance and visual evidence come from scripts/benchmark.ts.
-    await page.getByText('Rendering effects', { exact: true }).click();
+    const effects = page.getByText('Rendering effects', { exact: true });
+    if (activation === 'keyboard') await effects.press('Enter');
+    else await effects.click();
     await page.locator('[data-graphics="resolutionScale"]').fill('0.5');
-    await page.getByRole('button', { name: 'Apply settings' }).click();
+    const apply = page.getByRole('button', { name: 'Apply settings' });
+    if (activation === 'keyboard') await apply.press('Enter');
+    else await apply.click();
   }
-  await page.getByRole('button', { name: 'Enter the frontier' }).click();
+  const enter = page.getByRole('button', { name: 'Enter the frontier' });
+  if (activation === 'keyboard') await enter.press('Enter');
+  else await enter.click();
   await expect(page.locator('#hud')).toBeVisible();
   await expect.poll(async () => (await diagnostics(page)).tick).toBeGreaterThan(1);
 }

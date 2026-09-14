@@ -20,7 +20,7 @@ async function apply(page: Page): Promise<void> {
 test('advanced rendering composes, resets history and preserves Low progression', async ({
   page,
 }, testInfo) => {
-  // This journey changes fifteen switches twice and rebuilds the graph across
+  // This journey composes fifteen switches and rebuilds the graph across
   // quality, water, night and world boundaries on a CPU-rendered CI runner.
   test.setTimeout(process.env.CI ? 300000 : 90000);
   const errors: string[] = [];
@@ -32,7 +32,7 @@ test('advanced rendering composes, resets history and preserves Low progression'
     )
       errors.push(message.text());
   });
-  await startSolo(page, 'mobile');
+  await startSolo(page, 'mobile', 'keyboard');
   const original = await diagnostics(page);
   for (const key of ADVANCED_FEATURES) expect(original.graphics[key]).toBe(false);
   expect(original.pipeline.sharedBuffer).toBe(false);
@@ -98,12 +98,15 @@ test('advanced rendering composes, resets history and preserves Low progression'
   await page.getByRole('button', { name: 'Apply settings' }).press('Enter');
   await expect.poll(async () => (await diagnostics(page)).pipeline.sharedBuffer).toBe(true);
   await rendering(page);
-  for (const key of ADVANCED_FEATURES)
-    await page.locator(`[data-graphics="${key}"]`).press('Space');
-  for (const key of ['bloom', 'ambientOcclusion', 'sunShafts', 'lensFlare', 'planarReflections'])
-    await page.locator(`[data-graphics="${key}"]`).press('Space');
+  await page.getByRole('button', { name: 'Reset rendering defaults', exact: true }).press('Enter');
+  await page.locator('[data-graphics="resolutionScale"]').fill('0.5');
   await apply(page);
   await expect.poll(async () => (await diagnostics(page)).pipeline.estimatedTargetMiB).toBe(0);
+  const disabled = await diagnostics(page);
+  for (const key of ADVANCED_FEATURES) {
+    expect(disabled.graphics[key]).toBe(false);
+    expect(disabled.effectiveGraphics[key]).toBe(false);
+  }
   // Replacement worlds must not retain old light-probe textures or material hooks.
   await page.getByRole('button', { name: 'Close panel' }).press('Enter');
   await page.keyboard.press('Escape');
@@ -125,7 +128,7 @@ test('distant GPU buffers reload when the survivor returns to their region', asy
     )
       errors.push(message.text());
   });
-  await startSolo(page, 'mobile');
+  await startSolo(page, 'mobile', 'keyboard');
   await rendering(page);
   await page.locator('[data-graphics="chunkStreaming"]').press('Space');
   await page.locator('[data-graphics="streamingDistance"]').fill('128');
@@ -163,7 +166,7 @@ test('shared buffer views and repeated temporal/volume toggles release render ta
     )
       errors.push(message.text());
   });
-  await startSolo(page, 'mobile');
+  await startSolo(page, 'mobile', 'keyboard');
   await rendering(page);
   await expect.poll(async () => (await diagnostics(page)).renderer.textures).toBeGreaterThan(0);
   const baseline = (await diagnostics(page)).renderer.textures;
@@ -202,7 +205,7 @@ test('graphics context restoration rebuilds the pipeline and keeps the expeditio
     )
       errors.push(message.text());
   });
-  await startSolo(page, 'mobile');
+  await startSolo(page, 'mobile', 'keyboard');
   const before = await diagnostics(page);
   await rendering(page);
   for (const key of [

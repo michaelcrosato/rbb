@@ -16,6 +16,8 @@ Advanced rendering 0.3 verification recorded on 2026-09-14 Pacific. This ledger 
 
 The first Linux 0.3 run passed the eight preceding scenarios, then exhausted the combined-effects journey's three-minute limit during the night controls. Its trace had no browser/shader warnings or errors; ordinary pointer clicks took roughly eight seconds waiting for stable rendered frames. The rendering suite now uses native Enter/Space activation of the same visible controls, while the gameplay and touch suites retain mouse/touch coverage. Its longest combined journey has a five-minute CI budget. Gameplay, environment, rendering and mobile files run on separate CI runners; the final `verify` gate requires all groups and code checks. No assertions are skipped and retries remain disabled.
 
+The next Linux run passed the gameplay, environment and touch groups and reached the combined journey's cleanup before its budget expired. Rendering journeys now also use keyboard activation during startup. Cleanup uses the visible Reset rendering defaults command and explicitly checks every advanced preference/effective flag plus zero shared target allocation, avoiding fifteen redundant individual off-toggle actions.
+
 Faster activation also exposed a residency-test assumption: the first released chunk did not always belong to the test's fixed travel destination. Read-only diagnostics now report a released region, which the test visits through the actual Inspector. Residency uses real elapsed time independently of clamped animation time, so slow rendering does not stretch the ten-second unused interval. The four-releases-per-frame budget remains in place.
 
 ## Living-world 0.2 historical verification
