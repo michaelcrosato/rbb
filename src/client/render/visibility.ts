@@ -47,6 +47,7 @@ export class ChunkVisibility {
   private gl: WebGL2RenderingContext;
   private viewCamera?: THREE.Camera;
   get stats() {
+    const released = this.records.find((record) => record.evicted);
     return {
       chunks: this.records.length,
       residentChunks: this.records.filter((record) => record.resident).length,
@@ -55,6 +56,7 @@ export class ChunkVisibility {
       queries: this.queries,
       evictions: this.evictions,
       reloads: this.reloads,
+      releasedRegion: released ? { x: released.chunk.center.x, z: released.chunk.center.z } : null,
     };
   }
   constructor(private renderer: THREE.WebGLRenderer) {

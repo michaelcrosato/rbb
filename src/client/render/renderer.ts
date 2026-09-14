@@ -895,7 +895,8 @@ export class WorldRenderer {
     if (this.camera.position.y < -0.12 !== this.post.frame.previousPosition.y < -0.12)
       this.post.frame.reset('water boundary');
     this.post.begin(this.elapsed);
-    this.visibility.before(this.camera, dt, this.post.frame.cut);
+    // Residency is based on real unused time, independent of animation's clamped dt.
+    this.visibility.before(this.camera, elapsedFrame, this.post.frame.cut);
     this.ocean.renderReflection(this.renderer, this.scene, this.camera, [
       this.hand,
       this.atmosphere.particles,

@@ -14,6 +14,10 @@ Advanced rendering 0.3 verification recorded on 2026-09-14 Pacific. This ledger 
 - Benchmark browser exceptions and WebGL validation errors are zero. A single ANGLE warning log in the installed FXAA shader remains recorded; its gradient/temporary warnings did not prevent rendering. This is not a claim of warning-free compilation on every driver.
 - Save version 2, world version 1 and protocol 2 are unchanged. All advanced switches default off even on High, and rendering preferences remain device-local. Physical-device soak tests and the advanced guide's remaining quality limits are still open.
 
+The first Linux 0.3 run passed the eight preceding scenarios, then exhausted the combined-effects journey's three-minute limit during the night controls. Its trace had no browser/shader warnings or errors; ordinary pointer clicks took roughly eight seconds waiting for stable rendered frames. The rendering suite now uses native Enter/Space activation of the same visible controls, while the gameplay and touch suites retain mouse/touch coverage. Its longest combined journey has a five-minute CI budget. Gameplay, environment, rendering and mobile files run on separate CI runners; the final `verify` gate requires all groups and code checks. No assertions are skipped and retries remain disabled.
+
+Faster activation also exposed a residency-test assumption: the first released chunk did not always belong to the test's fixed travel destination. Read-only diagnostics now report a released region, which the test visits through the actual Inspector. Residency uses real elapsed time independently of clamped animation time, so slow rendering does not stretch the ten-second unused interval. The four-releases-per-frame budget remains in place.
+
 ## Living-world 0.2 historical verification
 
 Recorded on 2026-09-12 Pacific (2026-09-13 UTC).

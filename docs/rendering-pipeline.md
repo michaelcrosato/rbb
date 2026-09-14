@@ -46,7 +46,7 @@ Float-target/MRT capability checks suppress unsupported advanced screen effects 
 
 Context loss retires target, geometry and instance disposal listeners while their old GL handles are invalid, retaining CPU geometry for re-upload. Restoration refreshes capability/extension access before rebuilding the graph. The recovery check then leaves and reopens the world, which also catches stale cleanup that would only happen on a later disposal.
 
-Occlusion suppresses a hidden chunk's draw range only for the main camera's color/depth passes. Shadow, reflection and probe cameras retain it. This preserves off-screen contributors, but Three.js still traverses and submits objects; it is not GPU-driven indirect rendering. Residency tracks those other passes too, so a distant shadow caster stays allocated while it is used.
+Occlusion suppresses a hidden chunk's draw range only for the main camera's color/depth passes. Shadow, reflection and probe cameras retain it. This preserves off-screen contributors, but Three.js still traverses and submits objects; it is not GPU-driven indirect rendering. Residency tracks those other passes too, so a distant shadow caster stays allocated while it is used. Its unused interval follows real elapsed time rather than animation's clamped time step; read-only diagnostics expose a released region for travel/re-upload checks.
 
 F2's **Shared buffer view** makes the inputs inspectable. These diagnostic captures use the low-resolution browser-test preset. Normals preserve faceted surfaces; the static velocity view shows neutral XY motion on land, a separate blue held-tool mask, and excluded sky. The views are tools for adding and debugging passes, not visual presets.
 
