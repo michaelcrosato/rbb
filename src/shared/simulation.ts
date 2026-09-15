@@ -1,4 +1,12 @@
-import { BALANCE, BUILDINGS, ITEMS, RECIPES, RESOURCE_TYPES, WILDLIFE } from './content';
+import {
+  BALANCE,
+  BUILDINGS,
+  CONSUMABLES,
+  ITEMS,
+  RECIPES,
+  RESOURCE_TYPES,
+  WILDLIFE,
+} from './content';
 import { buildCandidate, validateBuild } from './building';
 import { transact } from './inventory';
 import { clamp, distance2 } from './math';
@@ -79,19 +87,13 @@ export class Simulation {
     if (p.cooldown > 0 && (command.type === 'interact' || command.type === 'build'))
       return fail('Wait a moment.');
     if (command.type === 'consume') {
-      if (!['berries', 'cookedMeat', 'bandage'].includes(command.item))
-        return fail('You cannot use this item.');
+      const effect = CONSUMABLES[command.item];
+      if (!effect) return fail('You cannot use this item.');
       const result = transact(p.inventory, { [command.item]: 1 }, {});
       if (!result.ok) return result;
-      if (command.item === 'berries') {
-        p.hunger = clamp(p.hunger + 16, 0, 100);
-        p.thirst = clamp(p.thirst + 10, 0, 100);
-      }
-      if (command.item === 'cookedMeat') {
-        p.hunger = clamp(p.hunger + 40, 0, 100);
-        p.health = clamp(p.health + 8, 0, 100);
-      }
-      if (command.item === 'bandage') p.health = clamp(p.health + 30, 0, 100);
+      p.hunger = clamp(p.hunger + (effect.hunger ?? 0), 0, 100);
+      p.thirst = clamp(p.thirst + (effect.thirst ?? 0), 0, 100);
+      p.health = clamp(p.health + (effect.health ?? 0), 0, 100);
       p.cooldown = 0.45;
       return this.event('consume', p, `Used ${ITEMS[command.item].name.toLowerCase()}.`);
     }

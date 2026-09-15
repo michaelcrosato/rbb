@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import { graphicsSchema, DEFAULT_GRAPHICS } from './render/settings';
 import { DeveloperControls } from './developer';
+import { version } from '../../package.json';
 import { buildCandidate, validateBuild } from '../shared/building';
+import { isConsumable } from '../shared/content';
 import type { BuildingKind, ItemId, RecipeId } from '../shared/content';
-import { parseSave, encodeSave } from '../shared/save';
+import { MAX_SAVE_BYTES, parseSave, encodeSave } from '../shared/save';
 import type { SaveFile } from '../shared/save';
 import type { Building, PlayerState } from '../shared/state';
 import { DEFAULT_SEED, generateWorld } from '../shared/world';
@@ -311,7 +313,7 @@ export class Game {
         this.session.command({ type: 'equip', item: HOTBAR[index] });
       }
     } else if (action === 'item' && this.session) {
-      if (['berries', 'cookedMeat', 'bandage'].includes(value!))
+      if (isConsumable(value as ItemId))
         this.session.command({ type: 'consume', item: value as ItemId });
       else this.session.command({ type: 'equip', item: value as ItemId });
     } else if (action === 'craft')
@@ -447,7 +449,7 @@ export class Game {
     if (!p) return;
     this.session!.command({
       type: 'consume',
-      item: ['berries', 'bandage', 'cookedMeat'].includes(p.equipped) ? p.equipped : 'berries',
+      item: isConsumable(p.equipped) ? p.equipped : 'berries',
     });
   }
   private cancelBuild(): void {
@@ -460,8 +462,7 @@ export class Game {
   private save(): void {
     if (this.session?.mode !== 'solo') return;
     try {
-      const raw = this.saves.save(this.session.state, this.session.playerId);
-      this.saved = parseSave(raw);
+      this.saved = this.saves.save(this.session.state, this.session.playerId);
       this.ui.setStatus('✓ Saved on this device');
     } catch {
       this.ui.setStatus('Save unavailable · export from pause menu');
@@ -482,7 +483,7 @@ export class Game {
   private async importFile(file?: File): Promise<void> {
     if (!file) return;
     try {
-      if (file.size > 2_000_000) throw new Error('Save files must be smaller than 2 MB.');
+      if (file.size > MAX_SAVE_BYTES) throw new Error('Save files must be smaller than 2 MB.');
       const raw = await file.text();
       const save = parseSave(raw);
       // A valid import deliberately replaces this device's active solo expedition; keep a backup.
@@ -514,14 +515,7 @@ export class Game {
         this.renderer.sync(getSnapshot(session));
         this.syncedTick = session.state.tick;
       }
-      this.renderer.render(
-        time,
-        p,
-        this.input.yaw,
-        this.input.pitch,
-        session.state.time,
-        !this.ui.panel,
-      );
+      this.renderer.render(time, p, this.input.yaw, this.input.pitch, !this.ui.panel);
       this.audio.environment(
         this.renderer.atmosphere.last.weather.wind * session.state.tuning.windStrength,
         this.renderer.atmosphere.last.weather.rain,
@@ -544,7 +538,9 @@ export class Game {
         this.renderer.showPreview(this.candidate, result.ok);
         this.ui.buildHint(this.buildKind, result.message, result.ok);
       } else this.renderer.showPreview(null, false);
-      if (this.input.heldAction && time - this.lastAction > 610 && !paused) this.interact();
+      // Holding the action key repeats gathering; building placement stays one piece per press.
+      if (this.input.heldAction && !this.buildKind && time - this.lastAction > 610 && !paused)
+        this.interact();
       this.uiTime += dt;
       this.saveTime += paused ? 0 : dt;
       if (this.uiTime > 0.1) {
@@ -557,7 +553,7 @@ export class Game {
         this.saveTime = 0;
         this.save();
       }
-    } else this.renderer.render(time, null, 0, 0, 300, false);
+    } else this.renderer.render(time, null, 0, 0, false);
     const stats = this.ui.root.querySelector<HTMLElement>('#stats')!;
     stats.hidden = !this.settings.showStats;
     if (this.settings.showStats) {
@@ -576,7 +572,7 @@ export class Game {
   diagnostics(): unknown {
     const p = this.player();
     return structuredClone({
-      version: '0.3.0',
+      version,
       environment: this.session?.state.environment,
       tuning: this.session?.state.tuning,
       animals: this.session?.state.animals,

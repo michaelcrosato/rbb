@@ -300,7 +300,7 @@ export class RemoteSession implements Session {
     this.sinceMove += dt;
     this.sincePing += dt;
     if (this.socket?.readyState !== WebSocket.OPEN || !this.status.startsWith('Connected')) return;
-    if (this.pendingMove && this.sinceMove >= 1 / 30) {
+    if (this.pendingMove && this.sinceMove >= 1 / BALANCE.tickRate) {
       this.socket.send(
         JSON.stringify({ type: 'command', seq: ++this.seq, command: this.pendingMove }),
       );

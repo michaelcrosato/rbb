@@ -34,6 +34,18 @@ The [rendering matrix](rendering-and-world.md) records implemented effects and d
 
 These implementations have bounded budgets and documented quality limits. Physical-device profiling, probe visibility/vertical layers, cloud-to-ground shadows, stronger temporal masks/reconstruction and larger-world streaming remain follow-up work.
 
+## Engineering follow-ups from the 2026-09-14 audit
+
+Verified by reading the code, deferred because each needs browser or hardware evidence before it is clearly worth its risk:
+
+- Solo saves have no cross-tab guard; two tabs autosaving the same origin overwrite each other and the backup slot. Use `navigator.locks` or `storage` events to stop the second tab's autosave with a message.
+- `session.ts` hand-mirrors `Snapshot` in its own zod schema. Move a server-message schema next to `clientMessageSchema` and infer the types from it.
+- `game.ts` is orchestrator, settings store, form reader, importer and overlay renderer, and `UI` keeps shadow copies of mode and player state. Extract a settings store and typed form readers before adding settings.
+- `PostEffects.configure` disposes the whole post graph on any graphics change, including exposure or view distance. Rebuild only when a key the graph consumes changes; apply scalars as uniform updates. GTAO still rasterizes its own normal pre-pass although the shared depth/normal buffers exist.
+- `renderer.ts` owns culling tables, collision-debug geometry, actor interpolation, camp lights and auto-quality. Split by ownership, and derive the height-map encoding constants in the water, buffer and fog shaders from `WORLD_HALF`/`WORLD_SIZE`.
+- Browser suites capture errors with three different strictness levels; share one fixture with the WebGL regex, and replace the remaining fixed-sleep movement assertions with condition waits. `RemoteSession` reconnect and backoff have no fake-socket unit test.
+- Snapshots are full state at 10 Hz per client (about 47 KB each with a 400-piece camp). Interest management or deltas come before larger worlds or player counts.
+
 ## Subsequent iterations
 
 Human QA should set priorities after this foundation. Candidate systems: modular building interiors/doors, storage permissions, dedicated-server accounts, PvP and combat balance, tool durability, technology trees, farming, cooking queues, temperature/weather gameplay, more complex animal ecology, spatial interest management, client prediction/reconciliation, world sharding and moderation. Hardware ray tracing can wait for measured need and mature examples.

@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
+import pkg from '../package.json' with { type: 'json' };
 import { BALANCE } from '../src/shared/content';
 import { clientMessageSchema, PROTOCOL_VERSION, snapshotFor } from '../src/shared/protocol';
 import type { ServerMessage } from '../src/shared/protocol';
@@ -96,7 +97,7 @@ export async function startWorldServer(options: ServerOptions = {}) {
     res.end(
       JSON.stringify({
         service: 'rbb-world',
-        version: '0.3.0',
+        version: pkg.version,
         protocol: PROTOCOL_VERSION,
         ready: healthy && !shuttingDown,
         tick: sim.state.tick,
@@ -237,7 +238,7 @@ export async function startWorldServer(options: ServerOptions = {}) {
             return;
           }
         } else {
-          if (Object.keys(sim.state.players).length >= 512) {
+          if (Object.keys(sim.state.players).length >= BALANCE.maxSurvivors) {
             send(socket, {
               type: 'error',
               message: 'This alpha world has reached its survivor registry limit.',

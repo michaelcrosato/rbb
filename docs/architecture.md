@@ -2,7 +2,7 @@
 
 ## Boundaries
 
-`src/shared` owns world generation, registries, state, physics, simulation and the wire protocol. No DOM, Three.js, wall-clock time, filesystem or network dependencies belong here. Simulation advances at a fixed 30 Hz. Commands express intent; simulation validates range, cost, cooldowns, support and capacity before applying a transaction.
+`src/shared` owns world generation, registries, state, physics, simulation and the wire protocol. No DOM, Three.js, wall-clock time, filesystem or network dependencies belong here; `npm run lint` rejects such imports and globals, and a unit test replays a scripted session on two simulations to prove they stay identical. Simulation advances at a fixed 30 Hz. Commands express intent; simulation validates range, cost, cooldowns, support and capacity before applying a transaction.
 
 `src/client` owns Three.js presentation, input, audio, UI, transports and browser persistence. Solo mode and the dedicated server run the same simulation. Rendering runs independently of simulation and smooths the camera toward fixed-step or authoritative snapshots. Content IDs and stable world entity IDs join these layers. Foliage uses spatial instance batches; buildings share instance batches by piece type so adding a large camp does not add one draw call per piece.
 

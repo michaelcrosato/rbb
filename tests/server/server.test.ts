@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { once } from 'node:events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
+import pkg from '../../package.json' with { type: 'json' };
 import { startWorldServer } from '../../server/app';
 import { WorldStore } from '../../server/store';
 import { TokenBucket } from '../../server/rate-limit';
@@ -86,7 +87,7 @@ describe('authoritative world server', () => {
     const health = (await fetch(`http://127.0.0.1:${server.port}/health`).then((r) =>
       r.json(),
     )) as { players: number; ready: boolean };
-    expect(health).toMatchObject({ ready: true, players: 2 });
+    expect(health).toMatchObject({ ready: true, players: 2, version: pkg.version, protocol: 2 });
     const snapshot = (await a.peer.wait('snapshot', (m) => m.snapshot.players.length === 1))
       .snapshot;
     expect(snapshot.players[0].id).toBe(b.welcome.playerId);
@@ -186,6 +187,10 @@ describe('authoritative world server', () => {
     const close = once(malformed.ws, 'close');
     malformed.ws.send('{bad');
     expect((await close)[0]).toBe(1008);
+    const outdated = await connect(server);
+    const outdatedClose = once(outdated.ws, 'close');
+    outdated.ws.send(JSON.stringify({ type: 'hello', protocol: 1, name: 'Tester' }));
+    expect((await outdatedClose)[0]).toBe(1008);
   });
   it('holds a 16-client load without leaking inventory or losing tick authority', async () => {
     const server = await setup();

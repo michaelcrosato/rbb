@@ -170,6 +170,44 @@ describe('gather, craft, survive, build', () => {
     expect(p.inventory.stone).toBe(5);
     expect(sim.state.bags).toHaveLength(0);
   });
+  it('heals beside a campfire only while fed and watered', () => {
+    p.position = { x: 0, y: 8, z: 94 };
+    sim.state.buildings.push({
+      id: 'b1',
+      kind: 'campfire',
+      owner: p.id,
+      x: 0,
+      z: 96,
+      y: 8,
+      rotation: 0,
+    });
+    p.health = 50;
+    p.hunger = 20;
+    advance(5);
+    expect(p.health).toBe(50);
+    p.hunger = 80;
+    advance(5);
+    expect(p.health).toBeCloseTo(54, 1);
+  });
+  it('still validates a world at the building cap and refuses the next piece', () => {
+    p.inventory = { wood: 200, stone: 100 };
+    p.position = { x: 0, y: 8, z: 94 };
+    for (let i = sim.state.buildings.length; i < BALANCE.maxBuildings; i++)
+      sim.state.buildings.push({
+        id: `b${sim.state.nextId++}`,
+        kind: 'campfire',
+        owner: p.id,
+        x: 200 + (i % 50) * 2,
+        y: 8,
+        z: 200 + Math.floor(i / 50) * 2,
+        rotation: 0,
+      });
+    expect(() => parseState(structuredClone(sim.state))).not.toThrow();
+    expect(
+      sim.command(p.id, { type: 'build', kind: 'foundation', x: 0, z: 100, rotation: 0 }).message,
+    ).toContain('limit');
+    expect(sim.state.buildings).toHaveLength(BALANCE.maxBuildings);
+  });
   it('regrows resources after their timer but never through buildings or players', () => {
     face('starter-tree');
     sim.state.resources['starter-tree'] = { health: 0, respawnAt: sim.state.time + 1 };

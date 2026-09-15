@@ -52,6 +52,8 @@ export const DEFAULT_SETTINGS: RenderSettings = {
   showStats: false,
   graphics: { ...DEFAULT_GRAPHICS },
 };
+const CLOUD_CLEAR = new THREE.Color('#eff1ef'),
+  CLOUD_OVERCAST = new THREE.Color('#596872');
 interface InstanceRef {
   mesh: THREE.InstancedMesh;
   index: number;
@@ -735,7 +737,6 @@ export class WorldRenderer {
     player: PlayerState | null,
     yaw: number,
     pitch: number,
-    _worldTime: number,
     active: boolean,
   ): void {
     if (this.renderer.getContext().isContextLost()) return;
@@ -817,16 +818,15 @@ export class WorldRenderer {
     cloudBatch.count = Math.round(20 + this.atmosphere.last.weather.cloud * 70);
     const cloudMaterial = cloudBatch.material as THREE.MeshStandardMaterial;
     cloudMaterial.color
-      .set('#eff1ef')
-      .lerp(new THREE.Color('#596872'), this.atmosphere.last.weather.cloud * 0.8);
+      .copy(CLOUD_CLEAR)
+      .lerp(CLOUD_OVERCAST, this.atmosphere.last.weather.cloud * 0.8);
     cloudMaterial.emissive
       .copy(this.atmosphere.horizon)
       .multiplyScalar(this.atmosphere.last.daylight * 0.22);
-    const nearestCamps = [...this.camps].sort(
-      (a, b) =>
-        this.camera.position.distanceToSquared(new THREE.Vector3(a.x, a.y, a.z)) -
-        this.camera.position.distanceToSquared(new THREE.Vector3(b.x, b.y, b.z)),
-    );
+    const eye = this.camera.position;
+    const campDistance = (c: { x: number; y: number; z: number }) =>
+      (c.x - eye.x) ** 2 + (c.y - eye.y) ** 2 + (c.z - eye.z) ** 2;
+    const nearestCamps = [...this.camps].sort((a, b) => campDistance(a) - campDistance(b));
     this.campLights.forEach((light, i) => {
       const camp = nearestCamps[i];
       light.intensity =
@@ -938,7 +938,9 @@ export class WorldRenderer {
     this.post.end();
     this.timer.end();
     this.frameCount++;
-    this.frameTime += elapsedFrame;
+    // Use the clamped step so one long frame (tab switch, shader compile) cannot read as a low
+    // frame rate and step the automatic resolution down.
+    this.frameTime += dt;
     if (this.frameTime >= 1) {
       this.stats.fps = Math.round(this.frameCount / this.frameTime);
       this.stats.gpuMs = this.timer.milliseconds;

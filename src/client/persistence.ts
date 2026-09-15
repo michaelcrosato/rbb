@@ -10,6 +10,8 @@ export interface LoadResult {
 }
 
 export class SaveStore {
+  /** The last file this store wrote; it was validated then and need not be parsed again. */
+  private lastWritten: string | null = null;
   constructor(private readonly storage: Pick<Storage, 'getItem' | 'setItem'>) {}
   load(): LoadResult {
     try {
@@ -42,20 +44,21 @@ export class SaveStore {
       };
     }
   }
-  save(state: GameState, playerId: string): string {
+  save(state: GameState, playerId: string): SaveFile {
     const next = encodeSave(state, playerId);
-    parseSave(next);
+    const file = parseSave(next);
     const existing = this.storage.getItem(KEY);
     if (existing) {
       try {
-        parseSave(existing);
+        if (existing !== this.lastWritten) parseSave(existing);
         this.storage.setItem(BACKUP, existing);
       } catch {
         /* Do not replace a healthy backup with corrupt data. */
       }
     }
     this.storage.setItem(KEY, next);
-    return next;
+    this.lastWritten = next;
+    return file;
   }
   import(text: string): SaveFile {
     const save = parseSave(text);

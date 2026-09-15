@@ -2,6 +2,13 @@
 
 Advanced rendering 0.3 verification recorded on 2026-09-14 Pacific. This ledger distinguishes implementation, automated evidence, and physical-device QA. The [public CI history](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml) records checks for each revision. The older 0.2 evidence is retained below as a historical baseline.
 
+## Repository audit · 2026-09-14
+
+- A read-through of the shared simulation, server, client, rendering, tests and tooling found no gameplay or security defects in the simulation or server. Changes were limited to guards and two rendering bugs: instanced meshes now release their GPU instance buffers when props, buildings or dead animals are disposed, and one long frame (tab switch, shader compile) no longer steps the automatic resolution down.
+- The save schema and wire protocol now take their bounds from the content registry and world constants, so a balance change cannot silently invalidate saves or take a live server down at its next snapshot. Consumable effects moved into `CONSUMABLES`; the simulation, pack UI and F key derive usability from that one entry. Misspelled item IDs in recipes, buildings or resource tables are compile errors.
+- ESLint now rejects Three.js, DOM, Node and wall-clock use inside `src/shared`, and rejects client imports from `server`. New tests replay a scripted two-survivor session on two simulations and across a snapshot reload, cover the building cap, campfire healing, bag privacy, protocol-version rejection and version parity of both health routes.
+- On Windows / Node 24.20.0: TypeScript, ESLint, Prettier, 59 unit/integration tests, the client and server builds, and all 16 Playwright scenarios pass. The `verify` CI gate now also requires the container job. Deferred findings are listed in the [roadmap](roadmap.md).
+
 ## Advanced rendering 0.3
 
 - TypeScript, ESLint, 52 unit/integration tests, and the production client/server builds pass on Windows / Node 24.20.0. The six new rendering tests cover opt-in defaults/legacy settings, Low preference preservation, unavailable capabilities, live shared texture/matrix references, camera jitter/history, and independent material adapters.

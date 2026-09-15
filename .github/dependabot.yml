@@ -6,8 +6,17 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
+      # Runtime packages and their type packages are pinned in lockstep; bump them together.
+      three:
+        patterns: ['three', '@types/three']
+      ws:
+        patterns: ['ws', '@types/ws']
       development:
         dependency-type: development
+    ignore:
+      # The runtime is Node 24 (engines, .nvmrc, Dockerfile); keep the types on the same major.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
   - package-ecosystem: github-actions
     directory: /
     schedule:

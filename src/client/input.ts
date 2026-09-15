@@ -25,6 +25,7 @@ export class Input {
   private touchJump = false;
   private readonly abort = new AbortController();
   private lookPointer: { id: number; x: number; y: number } | null = null;
+  private sprintButton: HTMLElement | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -189,11 +190,12 @@ export class Input {
         },
         { signal: this.abort.signal },
       );
-    root.querySelector('#touch-sprint')!.addEventListener(
+    this.sprintButton = root.querySelector<HTMLElement>('#touch-sprint')!;
+    this.sprintButton.addEventListener(
       'click',
-      (e) => {
+      () => {
         this.touchSprint = !this.touchSprint;
-        (e.currentTarget as HTMLElement).classList.toggle('selected', this.touchSprint);
+        this.sprintButton?.classList.toggle('selected', this.touchSprint);
       },
       { signal: this.abort.signal },
     );
@@ -238,6 +240,8 @@ export class Input {
     this.stick = { x: 0, y: 0 };
     this.lookPointer = null;
     this.touchSprint = false;
+    // Menus clear held input; the sprint toggle must not stay highlighted while off.
+    this.sprintButton?.classList.remove('selected');
     this.touchDive = false;
     this.touchJump = false;
   }

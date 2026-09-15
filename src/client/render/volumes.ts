@@ -199,6 +199,8 @@ export class VolumePass extends Pass {
       u[`shadow${i}`].value = light.shadow.map!.depthTexture;
       u.shadowMatrix.value[i].copy(light.shadow.matrix);
     });
+    // Unused slots must not keep a disposed shadow map bound; Three re-uploads bound textures.
+    for (let i = lights.length; i < 4; i++) u[`shadow${i}`].value = this.emptyShadow;
     this.quad.material = this.material;
     renderer.setRenderTarget(this.target);
     this.quad.render(renderer);

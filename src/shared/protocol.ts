@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { developerSchema } from './developer';
 import { BUILDING_IDS, ITEM_IDS, RECIPE_IDS } from './content';
 import type { GameEvent, GameState, PlayerState, Result } from './state';
+import { WORLD_HALF } from './world';
 
 export const PROTOCOL_VERSION = 2;
 export const moveSchema = z
@@ -30,8 +31,8 @@ export const commandSchema = z.discriminatedUnion('type', [
     .object({
       type: z.literal('build'),
       kind: z.enum(BUILDING_IDS),
-      x: z.number().finite().min(-320).max(320),
-      z: z.number().finite().min(-320).max(320),
+      x: z.number().finite().min(-WORLD_HALF).max(WORLD_HALF),
+      z: z.number().finite().min(-WORLD_HALF).max(WORLD_HALF),
       rotation: z.number().int().min(0).max(3),
     })
     .strict(),

@@ -1,6 +1,8 @@
+import { version } from '../../../package.json';
 import {
   BUILDINGS,
   BUILDING_IDS,
+  isConsumable,
   ITEMS,
   ITEM_IDS,
   MAX_WEIGHT,
@@ -51,7 +53,7 @@ export class UI {
       <canvas id="world" aria-label="3D survival world. Use WASD to move, mouse or touch to look, and E to gather."></canvas>
       <div id="vignette"></div>
       <main id="main-menu" class="menu">
-        <header class="brand"><span class="brand-symbol">${icon('mountain')}</span><strong>rbb<span class="brand-dot">.</span></strong><span class="tag">FRONTIER ALPHA <b>0.2</b></span></header>
+        <header class="brand"><span class="brand-symbol">${icon('mountain')}</span><strong>rbb<span class="brand-dot">.</span></strong><span class="tag">FRONTIER ALPHA <b>${version}</b></span></header>
         <section class="menu-content">
           <p class="eyebrow"><span class="status-dot"></span> THE QUIET FRONTIER</p>
           <h1>A little wild.<br>A world of <em>possibility.</em></h1>
@@ -276,7 +278,7 @@ export class UI {
       )
         .map(
           (id) =>
-            `<button class="inventory-item" data-action="item" data-value="${id}" title="${ITEMS[id].description}"><span style="color:${ITEMS[id].color}">${icon(ITEMS[id].icon)}</span><strong>${ITEMS[id].name}</strong><b>×${player.inventory[id]}</b><small>${['berries', 'cookedMeat', 'bandage'].includes(id) ? 'Click to use' : 'Click to equip'}</small></button>`,
+            `<button class="inventory-item" data-action="item" data-value="${id}" title="${ITEMS[id].description}"><span style="color:${ITEMS[id].color}">${icon(ITEMS[id].icon)}</span><strong>${ITEMS[id].name}</strong><b>×${player.inventory[id]}</b><small>${isConsumable(id) ? 'Click to use' : 'Click to equip'}</small></button>`,
         )
         .join(
           '',

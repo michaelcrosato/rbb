@@ -212,23 +212,6 @@ export function buildingModel(kind: BuildingKind): THREE.Group {
   return compact(group);
 }
 
-export function boarModel(): THREE.Group {
-  const group = new THREE.Group();
-  group.add(
-    mesh(new THREE.IcosahedronGeometry(0.65, 0).scale(0.7, 0.75, 1.2), '#766450', 0, 0.7, 0),
-  );
-  group.add(mesh(new THREE.IcosahedronGeometry(0.38, 0), '#625342', 0, 0.7, 0.72));
-  group.add(mesh(new THREE.BoxGeometry(0.32, 0.21, 0.28), '#96816a', 0, 0.59, 0.98));
-  for (const x of [-0.25, 0.25])
-    for (const z of [-0.38, 0.38])
-      group.add(mesh(new THREE.CylinderGeometry(0.09, 0.07, 0.45, 4), '#504a3b', x, 0.22, z));
-  for (const x of [-0.19, 0.19]) {
-    group.add(mesh(new THREE.ConeGeometry(0.12, 0.25, 3), '#5e503e', x, 1.05, 0.64));
-    group.add(mesh(new THREE.ConeGeometry(0.045, 0.24, 4), '#eee4bf', x, 0.64, 0.96));
-  }
-  return compact(group);
-}
-
 export function survivorModel(): THREE.Group {
   const group = new THREE.Group();
   group.add(mesh(new THREE.CylinderGeometry(0.23, 0.28, 0.65, 5), '#718a79', 0, 1.03, 0));
@@ -279,6 +262,8 @@ export function disposeObject(object: THREE.Object3D): void {
       if (o instanceof THREE.Mesh && o.customDepthMaterial) materials.add(o.customDepthMaterial);
       for (const m of Array.isArray(o.material) ? o.material : [o.material]) materials.add(m);
     }
+    // Instance matrices live in their own GPU buffer, released only by the mesh's dispose event.
+    if (o instanceof THREE.InstancedMesh) o.dispose();
   });
   geometries.forEach((g) => g.dispose());
   materials.forEach((m) => m.dispose());

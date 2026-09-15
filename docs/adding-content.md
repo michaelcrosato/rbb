@@ -2,8 +2,8 @@
 
 ## Item or recipe
 
-1. Add a stable ID to `ITEMS` in `src/shared/content.ts` with a name, description, weight, icon and color. IDs persist in saves; rename them only with an explicit migration.
-2. Add a `RECIPES` entry with `cost`, `output` and optional station. Costs are quantities of registered items. Both server and solo use the same atomic inventory transaction.
+1. Add a stable ID to `ITEMS` in `src/shared/content.ts` with a name, description, weight, icon and color. IDs persist in saves; rename them only with an explicit migration. If the item is eaten or applied, add its vitals to `CONSUMABLES`; the simulation, pack UI and F key derive usability from that entry.
+2. Add a `RECIPES` entry with `cost`, `output` and optional station. Costs are quantities of registered items and a misspelled ID fails to compile. Both server and solo use the same atomic inventory transaction.
 3. Add an icon/model if the existing ones do not fit. UI recipes and inventory entries derive from the registry.
 4. Test insufficient cost, capacity, station range, duplicate requests, and save round-trip. Never award inventory from a UI handler.
 

@@ -1,14 +1,26 @@
 import { z } from 'zod';
-import { BUILDING_IDS, ITEM_IDS, SPECIES_IDS } from './content';
+import {
+  BALANCE,
+  BUILDING_IDS,
+  ITEM_IDS,
+  MAX_WEIGHT,
+  RESOURCE_TYPES,
+  SPECIES_IDS,
+  WILDLIFE,
+} from './content';
+import type { MilestoneId } from './content';
 import { inventoryWeight } from './inventory';
 import { moveSchema } from './protocol';
 import { idleInput } from './state';
 import type { GameState } from './state';
-import { WORLD_VERSION, generateWorld } from './world';
+import { WORLD_HALF, WORLD_VERSION, generateWorld } from './world';
 import { createEnvironment, DEFAULT_TUNING, environmentSchema, tuningSchema } from './environment';
 import { populateWildlife, MAX_ANIMALS } from './wildlife';
 
 export const MAX_SAVE_BYTES = 2_000_000;
+// Bounds follow the content registry so a balance change cannot silently invalidate saves.
+const maxResourceHealth = Math.max(...Object.values(RESOURCE_TYPES).map((r) => r.health));
+const maxAnimalHealth = Math.max(...Object.values(WILDLIFE).map((w) => w.health));
 const finite = z.number().finite();
 const positive = finite.min(0).max(1e12);
 const id = z
@@ -18,14 +30,14 @@ const id = z
 const stat = finite.min(0).max(100);
 const position = z
   .object({
-    x: finite.min(-320).max(320),
+    x: finite.min(-WORLD_HALF).max(WORLD_HALF),
     y: finite.min(-20).max(160),
-    z: finite.min(-320).max(320),
+    z: finite.min(-WORLD_HALF).max(WORLD_HALF),
   })
   .strict();
 export const inventorySchema = z
   .partialRecord(z.enum(ITEM_IDS), z.number().int().min(1).max(10000))
-  .refine((v) => inventoryWeight(v) <= 60.001, 'Inventory exceeds carry capacity');
+  .refine((v) => inventoryWeight(v) <= MAX_WEIGHT + 0.001, 'Inventory exceeds carry capacity');
 const playerSchema = z
   .object({
     id,
@@ -44,7 +56,12 @@ const playerSchema = z
     cooldown: finite.min(0).max(10),
     grounded: z.boolean(),
     milestones: z
-      .object({ gather: positive, craft: positive, build: positive, camp: positive })
+      .object({
+        gather: positive,
+        craft: positive,
+        build: positive,
+        camp: positive,
+      } satisfies Record<MilestoneId, typeof positive>)
       .strict(),
     respawn: position,
     deaths: positive.int(),
@@ -71,10 +88,13 @@ export const stateSchema = z
     nextId: positive.int().min(1),
     players: z
       .record(id, playerSchema)
-      .refine((p) => Object.keys(p).length <= 512)
+      .refine((p) => Object.keys(p).length <= BALANCE.maxSurvivors)
       .refine((p) => Object.entries(p).every(([key, v]) => key === v.id)),
     resources: z
-      .record(id, z.object({ health: finite.min(0).max(6), respawnAt: positive }).strict())
+      .record(
+        id,
+        z.object({ health: finite.min(0).max(maxResourceHealth), respawnAt: positive }).strict(),
+      )
       .refine((r) => Object.keys(r).length <= 3000),
     buildings: z
       .array(
@@ -90,7 +110,7 @@ export const stateSchema = z
           })
           .strict(),
       )
-      .max(512),
+      .max(BALANCE.maxBuildings),
     bags: z
       .array(
         z
@@ -119,7 +139,7 @@ export const stateSchema = z
             homeX: position.shape.x,
             homeZ: position.shape.z,
             yaw: finite,
-            health: finite.min(0).max(80),
+            health: finite.min(0).max(maxAnimalHealth),
             cooldown: finite.min(0).max(5),
             respawnAt: positive,
           })
@@ -232,6 +252,8 @@ export function encodeSave(state: GameState, playerId: string): string {
   return JSON.stringify({
     format: 'rbb-save',
     version: 2,
+    // Envelope metadata only; the simulation never reads the wall clock.
+    // eslint-disable-next-line no-restricted-syntax
     savedAt: new Date().toISOString(),
     playerId,
     state,

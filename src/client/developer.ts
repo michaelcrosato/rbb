@@ -5,7 +5,7 @@ import { developerSchema } from '../shared/developer';
 import { encodeSave, parseSave } from '../shared/save';
 import type { SaveFile } from '../shared/save';
 import { terrainHeight } from '../shared/world';
-import { habitatValid } from '../shared/wildlife';
+import { habitatValid, MAX_ANIMALS } from '../shared/wildlife';
 import { DEFAULT_GRAPHICS, graphicsSchema } from './render/settings';
 import type { GraphicsSettings } from './render/settings';
 import type { RenderSettings } from './render/renderer';
@@ -121,7 +121,7 @@ export class DeveloperControls {
       .padStart(
         2,
         '0',
-      )} · ${s.environment.weather} · ${s.animals.filter((a) => a.health > 0).length}/96 animals · ${this.paused && session.mode === 'solo' ? 'Simulation paused' : 'World running'}`;
+      )} · ${s.environment.weather} · ${s.animals.filter((a) => a.health > 0).length}/${MAX_ANIMALS} animals · ${this.paused && session.mode === 'solo' ? 'Simulation paused' : 'World running'}`;
   }
   private capture(): void {
     const session = this.options.session();

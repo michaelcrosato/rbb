@@ -52,15 +52,16 @@ jobs:
             test-results/
           retention-days: 14
   verify:
-    needs: [checks, browser]
+    needs: [checks, browser, container]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Require all code and browser checks
+      - name: Require all code, browser and container checks
         run: |
           test "${{ needs.checks.result }}" = "success"
           test "${{ needs.browser.result }}" = "success"
+          test "${{ needs.container.result }}" = "success"
   container:
     runs-on: ubuntu-latest
     timeout-minutes: 10

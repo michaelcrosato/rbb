@@ -1,4 +1,12 @@
-/** The content registry is the single source of truth for balance and presentation metadata. */
+/** The content registry is the single source of truth for balance and presentation metadata.
+ * The `satisfies` clauses make a misspelled item ID in a cost, output or loot table a compile error. */
+export interface ItemDefinition {
+  name: string;
+  description: string;
+  weight: number;
+  icon: string;
+  color: string;
+}
 export const ITEMS = {
   rock: {
     name: 'River stone',
@@ -70,12 +78,33 @@ export const ITEMS = {
     icon: 'bandage',
     color: '#f2eacb',
   },
-} as const;
+} as const satisfies Record<string, ItemDefinition>;
 export type ItemId = keyof typeof ITEMS;
 export type Inventory = Partial<Record<ItemId, number>>;
 export const ITEM_IDS = Object.keys(ITEMS) as ItemId[];
 export const MAX_WEIGHT = 60;
 
+/** Vitals restored by the `consume` command. Keep these in step with the item descriptions. */
+export interface ConsumableEffect {
+  hunger?: number;
+  thirst?: number;
+  health?: number;
+}
+export const CONSUMABLES: Partial<Record<ItemId, ConsumableEffect>> = {
+  berries: { hunger: 16, thirst: 10 },
+  cookedMeat: { hunger: 40, health: 8 },
+  bandage: { health: 30 },
+};
+export const isConsumable = (id: ItemId): boolean => CONSUMABLES[id] !== undefined;
+
+export interface RecipeDefinition {
+  name: string;
+  cost: Inventory;
+  output: Inventory;
+  description: string;
+  /** Building that must stand within 5 m of the crafter. */
+  station?: BuildingKind;
+}
 export const RECIPES = {
   hatchet: {
     name: 'Stone hatchet',
@@ -102,10 +131,16 @@ export const RECIPES = {
     description: 'Requires a campfire within 5 metres.',
     station: 'campfire',
   },
-} as const;
+} as const satisfies Record<string, RecipeDefinition>;
 export type RecipeId = keyof typeof RECIPES;
 export const RECIPE_IDS = Object.keys(RECIPES) as RecipeId[];
 
+export interface BuildingDefinition {
+  name: string;
+  cost: Inventory;
+  description: string;
+  icon: string;
+}
 export const BUILDINGS = {
   foundation: {
     name: 'Timber foundation',
@@ -131,10 +166,22 @@ export const BUILDINGS = {
     description: 'Your new respawn point. Place on dry ground.',
     icon: 'bed',
   },
-} as const;
+} as const satisfies Record<string, BuildingDefinition>;
 export type BuildingKind = keyof typeof BUILDINGS;
 export const BUILDING_IDS = Object.keys(BUILDINGS) as BuildingKind[];
 
+export interface ResourceDefinition {
+  name: string;
+  /** Hits before the node is exhausted; a matching tool lands three hits at once. */
+  health: number;
+  item: ItemId;
+  yield: number;
+  /** Collision radius in metres; zero for walk-through plants. */
+  radius: number;
+  tool: ItemId;
+  /** World seconds before an exhausted node regrows. */
+  respawn: number;
+}
 export const RESOURCE_TYPES = {
   tree: {
     name: 'Coastal pine',
@@ -181,7 +228,7 @@ export const RESOURCE_TYPES = {
     tool: 'rock',
     respawn: 0,
   },
-} as const;
+} as const satisfies Record<string, ResourceDefinition>;
 export type ResourceKind = keyof typeof RESOURCE_TYPES;
 
 export const MILESTONES = [
@@ -224,6 +271,7 @@ export const BALANCE = {
   daySeconds: 1200,
   maxBuildings: 512,
   maxPlayers: 16,
+  maxSurvivors: 512,
 } as const;
 
 export const SPECIES_IDS = [
