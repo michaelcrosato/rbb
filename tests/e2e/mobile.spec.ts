@@ -1,6 +1,75 @@
 import { test, expect } from '@playwright/test';
 import { diagnostics, startSolo } from './helpers';
 
+test('a four-survivor crew, invite and map fit portrait and landscape touch screens', async ({
+  page,
+  browser,
+}, testInfo) => {
+  test.setTimeout(process.env.CI ? 240000 : 120000);
+  const contexts = await Promise.all(Array.from({ length: 3 }, () => browser.newContext()));
+  const teammates = await Promise.all(contexts.map((context) => context.newPage()));
+  const errors: string[] = [];
+  try {
+    for (const [i, survivor] of [page, ...teammates].entries()) {
+      survivor.on('pageerror', (error) => errors.push(error.message));
+      survivor.on('console', (message) => {
+        if (message.type() === 'error' || /GL_INVALID|WebGL:|cannot be cloned/.test(message.text()))
+          errors.push(message.text());
+      });
+      await survivor.goto('/');
+      await survivor.getByRole('button', { name: 'Settings', exact: true }).press('Enter');
+      await survivor.locator('#quality').selectOption('mobile');
+      await survivor.getByText('Rendering effects', { exact: true }).press('Enter');
+      await survivor.locator('[data-graphics="resolutionScale"]').fill('0.5');
+      await survivor.getByRole('button', { name: 'Apply settings' }).press('Enter');
+      await survivor.getByRole('button', { name: 'Join a world' }).press('Enter');
+      await survivor.getByLabel('World server', { exact: true }).fill('ws://127.0.0.1:8788');
+      await survivor
+        .getByLabel('Survivor name')
+        .fill(['Touch explorer', 'Alexandra Longname', 'Blair', 'Cameron'][i]);
+      if (survivor === page) {
+        await page.screenshot({ path: testInfo.outputPath('multiplayer-mobile-join.png') });
+        await page.getByRole('button', { name: 'Join world', exact: true }).tap();
+      } else await survivor.getByRole('button', { name: 'Join world', exact: true }).press('Enter');
+      await expect(survivor.locator('#hud')).toBeVisible();
+    }
+    await expect(page.locator('#crew-button')).toHaveText('4/4');
+    await expect(page.getByRole('button', { name: 'Crew and invite' })).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath('multiplayer-mobile-world.png') });
+    await page.getByRole('button', { name: 'Crew and invite' }).tap();
+    await expect(page.locator('#crew-list li')).toHaveCount(4);
+    await expect(page.locator('#crew-count')).toHaveText('4 / 4 survivors');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({ path: testInfo.outputPath('multiplayer-mobile-crew.png') });
+    await page.setViewportSize({ width: 915, height: 412 });
+    await page.getByRole('button', { name: 'Copy invite link' }).tap();
+    await page.screenshot({ path: testInfo.outputPath('multiplayer-mobile-landscape.png') });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.getByRole('button', { name: 'Find your crew' }).tap();
+    await expect(page.locator('#island-map')).toBeVisible();
+    await expect
+      .poll(() =>
+        page
+          .locator('#island-map')
+          .evaluate(
+            (canvas) =>
+              (canvas as HTMLCanvasElement).getContext('2d')!.getImageData(0, 0, 1, 1).data[3],
+          ),
+      )
+      .toBe(255);
+    await page.screenshot({ path: testInfo.outputPath('multiplayer-mobile-map.png') });
+    await page.getByRole('button', { name: 'Close panel' }).tap();
+    await expect(page.getByRole('button', { name: 'Gather or place' })).toBeInViewport();
+    expect(errors).toEqual([]);
+  } finally {
+    await Promise.all(contexts.map((context) => context.close()));
+  }
+});
+
 test('mobile layout, touch move/look, menus and landscape fit the screen', async ({
   page,
   isMobile,

@@ -69,6 +69,16 @@ export interface Target {
 }
 
 export class WorldRenderer {
+  get remoteSurvivors() {
+    return [...this.actors.entries()]
+      .filter(([, actor]) => actor.userData.survivor)
+      .map(([id, actor]) => ({
+        id,
+        visible: actor.visible,
+        position: { x: actor.position.x, y: actor.position.y, z: actor.position.z },
+        yaw: actor.rotation.y,
+      }));
+  }
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(75, 1, 0.08, 950);
@@ -579,8 +589,15 @@ export class WorldRenderer {
         this.actors.set(player.id, object);
         this.worldGroup.add(object);
       }
-      object.position.set(player.position.x, player.position.y, player.position.z);
-      object.rotation.y = player.yaw + Math.PI;
+      const target = new THREE.Vector3(player.position.x, player.position.y, player.position.z);
+      // Smooth authoritative samples at render rate; snap respawns and large corrections.
+      if (!object.userData.target || object.position.distanceTo(target) > 8) {
+        object.position.copy(target);
+        object.rotation.y = player.yaw + Math.PI;
+      }
+      object.userData.survivor = true;
+      object.userData.target = target;
+      object.userData.yaw = player.yaw + Math.PI;
     }
     for (const [id, object] of this.actors)
       if (!actors.has(id)) {

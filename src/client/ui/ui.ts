@@ -1,5 +1,6 @@
 import { version } from '../../../package.json';
 import {
+  BALANCE,
   BUILDINGS,
   BUILDING_IDS,
   isConsumable,
@@ -28,6 +29,7 @@ export type Panel =
   | 'settings'
   | 'guide'
   | 'online'
+  | 'team'
   | 'death'
   | 'new';
 export const HOTBAR: ItemId[] = ['rock', 'hatchet', 'pickaxe', 'berries', 'bandage'];
@@ -38,6 +40,11 @@ export class UI {
   readonly hud: HTMLElement;
   readonly modal: HTMLElement;
   panel: Panel | null = null;
+  joinDefaults = {
+    serverUrl: import.meta.env.VITE_SERVER_URL || 'ws://localhost:8787',
+    name: 'Wanderer',
+  };
+  inviteUrl = '';
   onAction: (action: string, value?: string) => void = () => {};
   private modalBody: HTMLElement;
   private previousFocus: HTMLElement | null = null;
@@ -70,7 +77,7 @@ export class UI {
         <footer class="menu-footer"><span>${icon('compass')} EXPLORE. MAKE. SURVIVE.</span><button class="text-button" data-action="settings">${icon('settings')} Settings</button><a href="https://github.com/michaelcrosato/rbb" target="_blank" rel="noreferrer">Built in the open ↗</a></footer>
       </main>
       <div id="hud" hidden>
-        <div class="hud-top"><div class="location"><span class="hud-brand">rbb.</span><div><strong id="biome">Haven meadow</strong><span id="world-detail">DAY 01 · SOLO EXPEDITION</span></div></div><div class="compass"><span id="heading">N</span><div class="compass-ticks">┊ · ┊ · ┃ · ┊ · ┊</div><small id="bearing">000°</small></div><div class="hud-actions"><button class="icon-button" title="Map (M)" aria-label="Map" data-action="map">${icon('map')}</button><button class="icon-button" title="Pack (Tab)" aria-label="Pack and crafting" data-action="inventory">${icon('bag')}</button><button class="icon-button" title="Pause (Esc)" aria-label="Pause" data-action="pause">${icon('settings')}</button></div></div>
+        <div class="hud-top"><div class="location"><span class="hud-brand">rbb.</span><div><strong id="biome">Haven meadow</strong><span id="world-detail">DAY 01 · SOLO EXPEDITION</span></div></div><div class="compass"><span id="heading">N</span><div class="compass-ticks">┊ · ┊ · ┃ · ┊ · ┊</div><small id="bearing">000°</small></div><div class="hud-actions"><button id="crew-button" class="icon-button" title="Crew & invite" aria-label="Crew and invite" data-action="team" hidden></button><button class="icon-button" title="Map (M)" aria-label="Map" data-action="map">${icon('map')}</button><button class="icon-button" title="Pack (Tab)" aria-label="Pack and crafting" data-action="inventory">${icon('bag')}</button><button class="icon-button" title="Pause (Esc)" aria-label="Pause" data-action="pause">${icon('settings')}</button></div></div>
         <aside id="journal" class="journal"><div class="eyebrow">YOUR FIRST FOOTPRINTS <span>↗</span></div><strong id="objective-title"></strong><p id="objective-description"></p><div class="objective-track"><span id="objective-progress"></span></div><span id="objective-count" class="small muted"></span></aside>
         <div class="crosshair" aria-hidden="true"><span></span><span></span></div>
         <div id="target" class="target" hidden><span class="key">E</span><div><strong id="target-name"></strong><small id="target-action"></small></div></div>
@@ -157,8 +164,15 @@ export class UI {
     yaw: number,
     target: Target | null,
     mode: string,
+    connectionStatus = '',
   ): void {
     this.sessionMode = mode;
+    const crew = this.root.querySelector<HTMLButtonElement>('#crew-button')!;
+    crew.hidden = mode !== 'online';
+    crew.textContent = connectionStatus.startsWith('Connected')
+      ? `${Object.keys(state.players).length}/${BALANCE.maxPlayers}`
+      : '…';
+    if (this.panel === 'team') this.updateTeam(state, player, connectionStatus);
     const oxygen = this.root.querySelector<HTMLElement>('#oxygen')!;
     oxygen.hidden = player.oxygen >= 100 && player.position.y >= -1.5;
     oxygen.textContent = `AIR ${Math.round(player.oxygen)}% · ${matchMedia('(pointer: coarse)').matches ? 'Release dive' : 'Release C'} to surface`;
@@ -260,6 +274,26 @@ export class UI {
     this.previousFocus = null;
   }
 
+  updateTeam(state: GameState, player: PlayerState, status: string): void {
+    const roster = this.modal.querySelector('#crew-list');
+    if (!roster) return;
+    const players = [player, ...Object.values(state.players).filter((p) => p.id !== player.id)];
+    this.modal.querySelector('#crew-count')!.textContent =
+      `${players.length} / ${BALANCE.maxPlayers} survivors`;
+    this.modal.querySelector('#crew-status')!.textContent = status;
+    roster.innerHTML = players
+      .map((p) => {
+        const detail =
+          p.health <= 0
+            ? 'Awaiting respawn'
+            : p.id === player.id
+              ? 'You'
+              : `${Math.round(Math.hypot(p.position.x - player.position.x, p.position.z - player.position.z))} m away`;
+        return `<li><span class="crew-avatar" aria-hidden="true">${esc(p.name.slice(0, 1))}</span><div><strong>${esc(p.name)}</strong><small>${detail}</small></div><span>${Math.ceil(p.health)} HP</span></li>`;
+      })
+      .join('');
+  }
+
   private cost(cost: Inventory, inventory: Inventory): string {
     return Object.entries(cost)
       .map(
@@ -287,14 +321,16 @@ export class UI {
       body = `<h2 id="panel-title">Put down roots.</h2><p class="panel-description">Choose a piece, find a clear spot, then place it. Press R to rotate.</p><div class="building-grid">${BUILDING_IDS.map((id) => `<button class="building-card" data-action="select-build" data-value="${id}"><span class="building-icon">${icon(BUILDINGS[id].icon)}</span><h3>${BUILDINGS[id].name}</h3><p>${BUILDINGS[id].description}</p><div class="costs">${this.cost(BUILDINGS[id].cost, player.inventory)}</div><span class="card-footer">${player.dev.freeBuild || canAfford(player.inventory, BUILDINGS[id].cost) ? 'SELECT & PLACE' : 'PREVIEW · NEEDS MATERIALS'} ${icon('arrow')}</span></button>`).join('')}</div>`;
     } else if (panel === 'map') {
       body =
-        '<h2 id="panel-title">Know your island.</h2><p class="panel-description">Your position, freshwater, camps, and the way back.</p><div class="map-wrap"><canvas id="island-map" width="512" height="512" aria-label="Island map with your location, springs, buildings and lost packs"></canvas><span class="map-north">N ↑</span></div><div class="map-legend"><span>▲ You</span><span>◆ Camp</span><span>● Freshwater</span><span>✚ Lost pack</span></div>';
+        '<h2 id="panel-title">Know your island.</h2><p class="panel-description">Your position, crew, freshwater, camps, and the way back.</p><div class="map-wrap"><canvas id="island-map" width="512" height="512" aria-label="Island map with your location, crew, springs, buildings and lost packs"></canvas><span class="map-north">N ↑</span></div><div class="map-legend"><span>▲ You</span><span>● Crew</span><span>◆ Camp</span><span>● Freshwater</span><span>✚ Lost pack</span></div>';
     } else if (panel === 'pause') {
-      body = `<h2 id="panel-title">Take a breath.</h2><p class="panel-description">${this.sessionMode === 'solo' ? 'Your solo world is paused. Your progress is saved automatically.' : 'The shared world keeps moving. Find a safe place before stepping away.'}</p><div class="pause-buttons"><button class="button primary" data-action="resume">Return to the wild ${icon('arrow')}</button><button class="button secondary" data-action="inventory">Pack & crafting ${icon('bag')}</button><button class="button secondary" data-action="settings">Settings ${icon('settings')}</button><button class="button secondary" data-action="developer">Developer tools <kbd>F2</kbd></button><button class="button secondary" data-action="guide">Field guide ${icon('map')}</button>${this.sessionMode === 'solo' ? '<button class="button secondary" data-action="export">Export save ↗</button>' : ''}<button class="text-button" data-action="menu">Save & return to menu</button></div>`;
+      body = `<h2 id="panel-title">Take a breath.</h2><p class="panel-description">${this.sessionMode === 'solo' ? 'Your solo world is paused. Your progress is saved automatically.' : 'The shared world keeps moving. Find a safe place before stepping away.'}</p><div class="pause-buttons"><button class="button primary" data-action="resume">Return to the wild ${icon('arrow')}</button><button class="button secondary" data-action="inventory">Pack & crafting ${icon('bag')}</button><button class="button secondary" data-action="settings">Settings ${icon('settings')}</button><button class="button secondary" data-action="developer">Developer tools <kbd>F2</kbd></button><button class="button secondary" data-action="guide">Field guide ${icon('map')}</button>${this.sessionMode === 'solo' ? '<button class="button secondary" data-action="export">Export save ↗</button>' : '<button class="button secondary" data-action="team">Crew & invite ↗</button>'}<button class="text-button" data-action="menu">${this.sessionMode === 'solo' ? 'Save & return to menu' : 'Leave world & return to menu'}</button></div>`;
     } else if (panel === 'settings') {
       const s = this.renderSettings!;
       body = `<h2 id="panel-title">Your kind of frontier.</h2><p class="panel-description">Tune the experience to your device.</p><div class="settings-form"><label for="quality">Graphics quality <small>Auto adjusts resolution when frames slow down.</small></label><select id="quality"><option value="auto">Auto · recommended</option><option value="high">High · desktop</option><option value="balanced">Balanced</option><option value="mobile">Mobile · efficient</option><option value="low">Low · older hardware</option></select><label for="fov">Field of view <output id="fov-output">${s.fov}°</output></label><input id="fov" type="range" min="55" max="100" value="${s.fov}"/><label for="sensitivity">Look sensitivity <output id="sensitivity-output">${s.sensitivity.toFixed(1)}</output></label><input id="sensitivity" type="range" min="0.3" max="2.5" step="0.1" value="${s.sensitivity}"/><label for="volume">Sound effects <output id="volume-output">${Math.round(s.volume * 100)}%</output></label><input id="volume" type="range" min="0" max="1" step="0.05" value="${s.volume}"/><label class="checkbox-label"><input id="show-stats" type="checkbox" ${s.showStats ? 'checked' : ''}/> Show performance overlay</label><details class="graphics-options"><summary>Rendering effects</summary>${graphicsMarkup(s.graphics)}<button class="button secondary" id="enhanced-effects" type="button">Enable enhanced effects</button></details><button class="button primary" data-action="apply-settings">Apply settings ${icon('check')}</button></div>`;
     } else if (panel === 'online') {
-      body = `<h2 id="panel-title">Better with company.</h2><p class="panel-description">Join a running RBB world server. Your survivor stays with that world.</p><div class="settings-form"><label for="survivor-name">Survivor name</label><input id="survivor-name" value="Wanderer" maxlength="24" autocomplete="nickname"/><label for="server-url">World server</label><input id="server-url" value="${esc(import.meta.env.VITE_SERVER_URL || 'ws://localhost:8787')}" placeholder="wss://your-world.example.com" spellcheck="false"/><p class="muted small">Up to 16 survivors. The host runs the persistent world server included with RBB.</p><label class="checkbox-label"><input id="fresh-survivor" type="checkbox"/> Start a new survivor (replaces the saved login for this world)</label><button class="button primary" data-action="connect">Join world ${icon('arrow')}</button><p id="connect-status" class="small" role="status"></p></div>`;
+      body = `<h2 id="panel-title">Better with company.</h2><p class="panel-description">One island. Up to ${BALANCE.maxPlayers} players. Gather, build and survive together.</p><div class="settings-form"><label for="survivor-name">Survivor name</label><input id="survivor-name" value="${esc(this.joinDefaults.name)}" maxlength="24" autocomplete="nickname"/><label for="server-url">World server</label><input id="server-url" value="${esc(this.joinDefaults.serverUrl)}" placeholder="wss://your-world.example.com" spellcheck="false"/><p class="muted small">Join the same running world server as your friends. Your survivor and camp are saved there. <a href="https://github.com/michaelcrosato/rbb/blob/main/docs/deployment.md" target="_blank" rel="noreferrer">Hosting guide ↗</a></p><label class="checkbox-label"><input id="fresh-survivor" type="checkbox"/> Start a new survivor (becomes this browser’s default; other open tabs keep their survivors)</label><button class="button primary" data-action="connect">Join world ${icon('arrow')}</button><p id="connect-status" class="small" role="status"></p></div>`;
+    } else if (panel === 'team') {
+      body = `<h2 id="panel-title">Your crew.</h2><p class="panel-description">A shared home in the wild. Find each other on the map.</p><div class="section-label" id="crew-count"></div><ul id="crew-list" class="crew-list" aria-label="Connected survivors"></ul><p id="crew-status" class="small" role="status"></p><div class="settings-form"><label for="world-invite">Invite friends</label><input id="world-invite" readonly value="${esc(this.inviteUrl)}"/><button class="button secondary" data-action="copy-invite">Copy invite link ↗</button><p class="muted small">Friends need access to the game and world server at these addresses. For LAN play, use the host’s LAN address in place of localhost.</p><button class="button primary" data-action="map">Find your crew ${icon('map')}</button></div>`;
     } else if (panel === 'death') {
       body =
         '<h2 id="panel-title">The wild leaves a mark.</h2><p class="panel-description">Your supplies remain where you fell for 30 world minutes. Return to your bedroll, or begin again in Haven meadow.</p><button class="button primary" data-action="respawn">Find your feet again ' +
@@ -347,7 +383,7 @@ export class UI {
     }
   }
 
-  private drawMap(world: WorldDefinition, state: GameState, player: PlayerState): void {
+  drawMap(world: WorldDefinition, state: GameState, player: PlayerState): void {
     const canvas = this.modal.querySelector<HTMLCanvasElement>('#island-map');
     if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
@@ -406,6 +442,47 @@ export class UI {
         ctx.font = 'bold 18px sans-serif';
         ctx.fillText('+', at(b.x), at(b.z));
       }
+    ctx.fillStyle = '#f3efd5';
+    ctx.font = '10px monospace';
+    ctx.fillText('HAVEN MEADOW', 248, 348);
+    const labels = [{ x: 248, y: 348, width: ctx.measureText('HAVEN MEADOW').width }];
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'left';
+    for (const p of Object.values(state.players)) {
+      if (p.id === player.id) continue;
+      const x = at(p.position.x),
+        z = at(p.position.z);
+      ctx.fillStyle = p.health > 0 ? '#bee499' : '#ffd1b2';
+      ctx.strokeStyle = '#284c48';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, z, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      const width = ctx.measureText(p.name).width;
+      const labelX = Math.max(
+        4,
+        Math.min(508 - width, x + width + 9 > 508 ? x - width - 9 : x + 9),
+      );
+      // Three nearby teammates should each have a readable label, including at spawn.
+      const candidates = [-10, 8, -28, 26, -46, 44].map((offset) =>
+        Math.max(16, Math.min(500, z + offset)),
+      );
+      const labelY =
+        candidates.find((y) =>
+          labels.every(
+            (label) =>
+              Math.abs(y - label.y) >= 16 ||
+              labelX > label.x + label.width + 4 ||
+              labelX + width + 4 < label.x,
+          ),
+        ) ?? candidates[0];
+      labels.push({ x: labelX, y: labelY, width });
+      ctx.lineWidth = 3;
+      ctx.strokeText(p.name, labelX, labelY);
+      ctx.fillText(p.name, labelX, labelY);
+    }
+    ctx.textAlign = 'left';
     ctx.save();
     ctx.translate(at(player.position.x), at(player.position.z));
     ctx.rotate(-player.yaw);
@@ -421,8 +498,5 @@ export class UI {
     ctx.fill();
     ctx.stroke();
     ctx.restore();
-    ctx.fillStyle = '#f3efd5';
-    ctx.font = '10px monospace';
-    ctx.fillText('HAVEN MEADOW', 248, 348);
   }
 }

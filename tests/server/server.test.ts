@@ -12,6 +12,7 @@ import type { ClientMessage, ServerMessage, Snapshot } from '../../src/shared/pr
 import { Simulation } from '../../src/shared/simulation';
 import { createState, idleInput } from '../../src/shared/state';
 import { generateWorld } from '../../src/shared/world';
+import { BALANCE } from '../../src/shared/content';
 
 type RunningServer = Awaited<ReturnType<typeof startWorldServer>>;
 const servers: RunningServer[] = [],
@@ -143,11 +144,19 @@ describe('authoritative world server', () => {
     expect(later.self.input.forward).toBe(0);
     expect(later.self.inventory.berries).toBe(3);
   });
-  it('resumes the same survivor and resources after a process restart', async () => {
+  it('resumes all four survivors and shared resources after a process restart', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'rbb-restart-'));
     directories.push(dir);
     const server = await setup(dir),
       { peer, welcome } = await joinWorld(server);
+    const crew = await Promise.all(Array.from({ length: 3 }, () => joinWorld(server)));
+    for (const { peer: teammate } of crew)
+      teammate.send({ type: 'command', seq: 1, command: { type: 'consume', item: 'berries' } });
+    await Promise.all(
+      crew.map(({ peer: teammate }) =>
+        teammate.wait('snapshot', (m) => m.snapshot.self.inventory.berries === 2),
+      ),
+    );
     peer.send({
       type: 'command',
       seq: 1,
@@ -167,6 +176,16 @@ describe('authoritative world server', () => {
     expect(resumed.welcome.snapshot.self.inventory.fiber).toBe(6);
     expect(resumed.welcome.snapshot.resources['starter-fiber'].health).toBe(0);
     expect(resumed.welcome.snapshot.self.input.forward).toBe(0);
+    const returned = await Promise.all(
+      crew.map(({ welcome: teammate }) => joinWorld(restarted, teammate.token)),
+    );
+    expect(returned.map(({ welcome: teammate }) => teammate.playerId)).toEqual(
+      crew.map(({ welcome: teammate }) => teammate.playerId),
+    );
+    expect(
+      returned.every(({ welcome: teammate }) => teammate.snapshot.self.inventory.berries === 2),
+    ).toBe(true);
+    await resumed.peer.wait('snapshot', (m) => m.snapshot.players.length === 3);
   });
   it('rejects session theft, duplicate tabs, hostile browser origins and malformed data', async () => {
     const server = await setup(),
@@ -192,9 +211,9 @@ describe('authoritative world server', () => {
     outdated.ws.send(JSON.stringify({ type: 'hello', protocol: 1, name: 'Tester' }));
     expect((await outdatedClose)[0]).toBe(1008);
   });
-  it('holds a 16-client load without leaking inventory or losing tick authority', async () => {
+  it('holds a four-player load without leaking inventory or losing tick authority', async () => {
     const server = await setup();
-    const peers = await Promise.all(Array.from({ length: 16 }, () => joinWorld(server)));
+    const peers = await Promise.all(Array.from({ length: 4 }, () => joinWorld(server)));
     const start = server.diagnostics().tick;
     for (let step = 0; step < 35; step++) {
       for (const { peer } of peers)
@@ -210,14 +229,78 @@ describe('authoritative world server', () => {
     }
     expect(server.diagnostics()).toMatchObject({
       healthy: true,
-      connections: 16,
+      connections: 4,
       rejectedMessages: 0,
     });
     expect(server.diagnostics().tick - start).toBeGreaterThan(25);
     const snapshot: Snapshot = (
-      await peers[0].peer.wait('snapshot', (m) => m.snapshot.players.length === 15)
+      await peers[0].peer.wait('snapshot', (m) => m.snapshot.players.length === 3)
     ).snapshot;
     expect(snapshot.players.every((p) => !('inventory' in p))).toBe(true);
+  });
+  it('admits exactly four simultaneous joins, rejects overflow without creating survivors, and frees departed slots', async () => {
+    const server = await setup();
+    expect(BALANCE.maxPlayers).toBe(4);
+    const peers = await Promise.all(Array.from({ length: 6 }, () => connect(server)));
+    const closed = peers.map((peer) => once(peer.ws, 'close'));
+    peers.forEach((peer, i) => peer.send({ type: 'hello', protocol: 2, name: `Crew ${i}` }));
+    const admitted: { peer: Peer; welcome: Extract<ServerMessage, { type: 'welcome' }> }[] = [];
+    for (const peer of peers) {
+      const deadline = performance.now() + 4000;
+      while (
+        !peer.messages.some((m) => m.type === 'welcome' || m.type === 'error') &&
+        performance.now() < deadline
+      )
+        await delay(15);
+      const welcome = peer.messages.find((m) => m.type === 'welcome');
+      if (welcome?.type === 'welcome') admitted.push({ peer, welcome });
+      else {
+        expect((await peer.wait('error')).message).toContain('World full (4/4)');
+        expect((await closed[peers.indexOf(peer)])[0]).toBe(1008);
+      }
+    }
+    expect(admitted).toHaveLength(4);
+    expect(server.diagnostics().players).toBe(4);
+    const health = () => fetch(`http://127.0.0.1:${server.port}/health`).then((r) => r.json());
+    expect(await health()).toMatchObject({ players: 4, capacity: 4 });
+    const leaving = admitted[0];
+    leaving.peer.ws.close();
+    await closed[peers.indexOf(leaving.peer)];
+    await admitted[1].peer.wait('snapshot', (m) => m.snapshot.players.length === 2);
+    const resumed = await joinWorld(server, leaving.welcome.token);
+    expect(resumed.welcome.playerId).toBe(leaving.welcome.playerId);
+    expect(server.diagnostics().players).toBe(4);
+    expect(await health()).toMatchObject({ players: 4, capacity: 4 });
+  });
+  it('serializes competing resource gathers from four survivors without duplicating rewards', async () => {
+    const server = await setup();
+    const peers = await Promise.all(Array.from({ length: 4 }, () => joinWorld(server)));
+    for (const { peer } of peers) {
+      peer.send({
+        type: 'command',
+        seq: 1,
+        command: { type: 'move', input: { ...idleInput(), yaw: Math.atan2(1, 3) } },
+      });
+      peer.send({
+        type: 'command',
+        seq: 2,
+        command: { type: 'interact', target: 'starter-fiber' },
+      });
+    }
+    const snapshots = await Promise.all(
+      peers.map(
+        async ({ peer }) =>
+          (await peer.wait('snapshot', (m) => m.snapshot.resources['starter-fiber']?.health === 0))
+            .snapshot,
+      ),
+    );
+    expect(snapshots.reduce((sum, snapshot) => sum + (snapshot.self.inventory.fiber ?? 0), 0)).toBe(
+      6,
+    );
+    for (const snapshot of snapshots) {
+      expect(snapshot.players).toHaveLength(3);
+      expect(snapshot.players.every((p) => !('inventory' in p))).toBe(true);
+    }
   });
 });
 

@@ -407,6 +407,50 @@ a:hover {
   width: 17px;
   height: 17px;
 }
+#crew-button {
+  position: absolute;
+  right: 0;
+  top: 44px;
+  width: 44px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--lime);
+}
+.crew-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 18px;
+}
+.crew-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.crew-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #dce9ae18;
+  color: var(--lime);
+}
+.crew-list li > div {
+  min-width: 0;
+  flex: 1;
+}
+.crew-list strong {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.crew-list small,
+.crew-list li > span:last-child {
+  font-size: 11px;
+  color: var(--muted);
+}
 .journal {
   position: absolute;
   top: 103px;

@@ -37,6 +37,22 @@ Version 0.3 uses network protocol 2. Upgrade the static client and dedicated ser
 
 `GET /health` returns readiness, protocol, player count, capacity, tick, save time, uptime, and rejected-message count. It contains no credentials. Stop via SIGTERM/SIGINT to save and close connections cleanly. Store failures pause simulation and disconnect clients rather than continuing unsaved progress. A process restart loads the latest valid snapshot and clears held inputs.
 
+## Play together locally or on a LAN
+
+1. On the host computer, run `npm run dev` for the game and `npm run dev:server` in a second terminal for the shared world. All players connect to that one world process. There is no browser-only host or automatic public relay.
+2. For one computer, open `http://localhost:5173`, choose **Join a world**, and use `ws://localhost:8787`. For a LAN, replace localhost in both addresses with the host's LAN IP (for example `192.168.1.50`). Allow inbound TCP ports 5173 and 8787 through the host's firewall for your private network.
+3. Before starting the world process, allow the exact game origins. In PowerShell, for example:
+
+   ```powershell
+   $env:ALLOWED_ORIGINS = 'http://localhost:5173,http://127.0.0.1:5173,http://192.168.1.50:5173'
+   npm run dev:server
+   ```
+
+4. Each player enters a survivor name and joins. Use **Pause → Crew & invite → Copy invite link** to prefill the same server for friends; opening the link shows the join form. Join through the LAN game and server addresses before copying a LAN invite. The roster shows names, health and distance, and the map marks teammates. Four survivors can be online at once; a fifth must wait for a slot and retry.
+5. To play as separate survivors in multiple tabs on one browser, select **Start a new survivor** in each extra tab. Open tabs retain their own resume sessions across reloads. The most recently joined survivor becomes the default for a newly opened tab; a duplicated tab can inherit its original tab's session and must choose a new survivor. Closing a tab or leaving the world frees its slot; inventory and camp progress persist on the server.
+
+For friends outside your network, deploy the persistent server with a reachable WSS address and use the HTTPS client setup above. Invites provide the address, not network reachability or an access-control system. They never include survivor resume credentials. Active players share resources, buildings, wildlife and weather; each controls a separate inventory. Menus do not pause online survival. Offline survivors stop simulating, and the world pauses when empty. There are no reserved reconnect slots: if another player fills your slot, return to the menu and retry when space is available.
+
 ## Backups and recovery
 
 - Keep `DATA_DIR` on durable storage. Never put it in Git, Vercel build output, or a disposable container layer.
@@ -47,7 +63,7 @@ Version 0.3 uses network protocol 2. Upgrade the static client and dedicated ser
 
 ## Topology and security boundary
 
-One process owns a world and its SQLite database. Do not scale this service horizontally or mount one SQLite database across machines. The client is distributable; the authoritative simulation is not yet a distributed service. Maximum active clients: 16. Maximum registered survivors: 512. Maximum building pieces: 512. The registry cap bounds anonymous-session storage growth; rotating worlds needs a new data directory.
+One process owns a world and its SQLite database. Do not scale this service horizontally or mount one SQLite database across machines. The client is distributable; the authoritative simulation is not yet a distributed service. Maximum active players: 4. Total sockets are capped at 12, allowing pending handshakes so full worlds can report a useful rejection; pending joins expire after five seconds. Maximum registered survivors: 512. Maximum building pieces: 512. The registry cap bounds anonymous-session storage growth; rotating worlds needs a new data directory.
 
 Guest sessions use 256-bit random bearer tokens. Only token hashes are stored server-side; browsers retain their own resume token. A token proves ownership of a survivor, not a verified human identity. Treat it like a password: do not paste it into issues or logs. Production accounts, token revocation UX, moderation, and public-PvP anti-cheat are future work. Origin checks supplement schema/rate validation; they do not authenticate native clients.
 

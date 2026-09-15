@@ -7,6 +7,7 @@ import { RESOURCE_TYPES } from '../../src/shared/content';
 import type { Environment, Tuning, celestial } from '../../src/shared/environment';
 import type { GraphicsSettings } from '../../src/client/render/settings';
 import type { WorldRenderer } from '../../src/client/render/renderer';
+import type { PublicPlayer } from '../../src/shared/protocol';
 
 export interface Diagnostics {
   environment: Environment;
@@ -19,6 +20,8 @@ export interface Diagnostics {
   effectiveGraphics: GraphicsSettings;
   pipeline: WorldRenderer['pipeline'];
   player: PlayerState;
+  players: PublicPlayer[];
+  remoteSurvivors: WorldRenderer['remoteSurvivors'];
   look: { yaw: number; pitch: number };
   mutations: Record<string, { health: number; respawnAt: number }>;
   tick: number;

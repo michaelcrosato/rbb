@@ -2,6 +2,15 @@
 
 Advanced rendering 0.3 verification recorded on 2026-09-14 Pacific. This ledger distinguishes implementation, automated evidence, and physical-device QA. The [public CI history](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml) records checks for each revision. The older 0.2 evidence is retained below as a historical baseline.
 
+## Four-player co-op · 2026-09-14
+
+- On Windows / Node 24.20.0, `npm run check` passes TypeScript, ESLint, 63 unit/integration tests and both production builds; `npm run format:check` passes. All 19 Playwright scenarios pass. The four-player desktop and touch journeys also pass after the final map-label adjustment. The dev page and join form were inspected with agent-browser, and desktop/mobile screenshots were reviewed directly.
+- The authoritative server now caps active survivors at four. Real WebSocket integration tests open six concurrent joins, verify exactly four admissions, verify full-world errors without survivor allocation, release and resume a slot, exercise concurrent movement and contested gathering, and recover all four survivor identities and inventories after a server restart. Existing command validation, replay rejection, origin checks, private inventory and storage recovery tests remain in place.
+- A four-browser WebGL journey uses real keyboard, mouse and menu controls for simultaneous movement, gathering, crafting and shared construction. It checks remote rendered positions, private inventories, identical shared camp state, invite copying/prefill, a fifth player's rejection and subsequent admission, and removal of departed avatars. A separate same-browser journey verifies two survivors reload into their own identities after creating a second survivor.
+- Touch coverage joins four survivors, opens the crew and invite UI in portrait/landscape, navigates to the map and returns to usable game controls. Desktop screenshots show all three remote avatars and the shared foundation; map review prompted immediate rendering on open and separate labels for nearby teammates. Browser diagnostics remain read-only copies; the new scenarios also check browser exceptions and WebGL errors.
+- Invite links contain only a server address. A reachable dedicated server is required. Localhost/LAN and public WSS setup, per-tab resume behavior and full-world retries are documented in [deployment](deployment.md#play-together-locally-or-on-a-lan). Invites do not provision hosting, traverse NAT, reserve reconnect slots or grant private-world access control.
+- Tests run against localhost servers with isolated browser contexts and temporary databases. WAN latency/packet-loss testing, play across four physical devices and RTX 3070 Ti/Galaxy S25 profiling remain open. Remote survivors smooth toward 10 Hz authoritative samples; client prediction and buffered interpolation remain future work.
+
 ## Repository audit · 2026-09-14
 
 - A read-through of the shared simulation, server, client, rendering, tests and tooling found no gameplay or security defects in the simulation or server. Changes were limited to guards and two rendering bugs: instanced meshes now release their GPU instance buffers when props, buildings or dead animals are disposed, and one long frame (tab switch, shader compile) no longer steps the automatic resolution down.
@@ -80,9 +89,9 @@ Human device QA should record browser version, exact GPU/phone, viewport, preset
 ## Current limits
 
 - Cooperative shared world; no PvP, verified accounts, moderation, normal-play building demolition, doors/roofs, storage containers, or technology tree yet. Developer removal is available in sandbox worlds.
-- Remote snapshots are 10 Hz. Camera and wildlife interpolate; remote survivor interpolation and client prediction remain future work. Internet latency is therefore visible in movement.
+- Remote snapshots are 10 Hz. Camera, wildlife and remote survivor motion are smoothed at render rate. Client prediction and buffered snapshot interpolation remain future work; Internet latency is visible in movement.
 - Weather is visual/environmental; temperature, slippery surfaces and weather-driven needs are future work. Ocean waves do not displace gameplay physics. Advanced rendering limitations and deferred techniques are listed in the [feature matrix](rendering-and-world.md).
-- Server limit: 16 simultaneous clients, 512 registered survivors, 512 building pieces. This is a single-process SQLite deployment.
+- Server limit: 4 simultaneous players, 512 registered survivors, 512 building pieces. This is a single-process SQLite deployment. Reconnects need a free player slot.
 - The world is a finite island, with chunk culling and optional GPU-buffer residency rather than unbounded world streaming.
 - Saves are origin-local, with one active solo slot and a previous healthy backup. Export before changing browser/device or clearing site data.
 - The local Docker daemon is not running; the image build/restart verification was executed successfully in GitHub CI.

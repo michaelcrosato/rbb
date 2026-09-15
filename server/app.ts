@@ -137,7 +137,8 @@ export async function startWorldServer(options: ServerOptions = {}) {
       reject(403);
       return;
     }
-    if (clients.size >= BALANCE.maxPlayers) {
+    // Bound pending handshakes separately so a full world can still explain why joining failed.
+    if (clients.size >= BALANCE.maxPlayers + 8) {
       reject(503);
       return;
     }
@@ -217,6 +218,14 @@ export async function startWorldServer(options: ServerOptions = {}) {
           socket.close(1008, 'Already joined');
           return;
         }
+        if ([...clients.values()].filter((c) => c.playerId).length >= BALANCE.maxPlayers) {
+          send(socket, {
+            type: 'error',
+            message: `World full (${BALANCE.maxPlayers}/${BALANCE.maxPlayers}). Wait for a survivor to leave, then join again.`,
+          });
+          socket.close(1008, 'World full');
+          return;
+        }
         let token = message.token,
           playerId: string | undefined;
         if (token) {
@@ -232,7 +241,8 @@ export async function startWorldServer(options: ServerOptions = {}) {
           if ([...clients.values()].some((c) => c.playerId === playerId)) {
             send(socket, {
               type: 'error',
-              message: 'This survivor is already connected in another tab.',
+              message:
+                'This survivor is already connected in another tab. Choose Start a new survivor to play separately.',
             });
             socket.close(1008);
             return;

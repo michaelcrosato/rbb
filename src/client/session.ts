@@ -8,6 +8,7 @@ import { createState } from '../shared/state';
 import type { GameEvent, GameState, Result } from '../shared/state';
 import { generateWorld } from '../shared/world';
 import type { WorldDefinition } from '../shared/world';
+import { normalizeServerUrl } from './multiplayer';
 
 export interface Session {
   mode: 'solo' | 'online';
@@ -87,29 +88,12 @@ const snapshotSchema = z.object({
   time: stateSchema.shape.time,
   seed: stateSchema.shape.seed,
   self: stateSchema.shape.players.valueType,
-  players: z.array(publicPlayer).max(16),
+  players: z.array(publicPlayer).max(BALANCE.maxPlayers - 1),
   resources: stateSchema.shape.resources,
   buildings: stateSchema.shape.buildings,
   bags: stateSchema.shape.bags,
   animals: stateSchema.shape.animals,
 });
-
-export function normalizeServerUrl(value: string): string {
-  const url = new URL(value);
-  if (
-    !['ws:', 'wss:'].includes(url.protocol) ||
-    url.username ||
-    url.password ||
-    url.hash ||
-    url.search
-  )
-    throw new Error(
-      'Use a ws:// or wss:// world-server address without credentials or a query string.',
-    );
-  if (location.protocol === 'https:' && url.protocol !== 'wss:')
-    throw new Error('An HTTPS game needs a secure wss:// server.');
-  return url.toString();
-}
 
 /** Commands only. The server owns movement, inventory, world mutations, and time. */
 export class RemoteSession implements Session {
@@ -135,15 +119,18 @@ export class RemoteSession implements Session {
   private key: string;
 
   private constructor(
-    private readonly url: string,
+    readonly serverUrl: string,
     private readonly name: string,
     fresh = false,
   ) {
     this.world = generateWorld('connecting');
     this.state = createState(this.world);
-    this.key = `rbb.session:${url}`;
+    this.key = `rbb.session:${serverUrl}`;
     try {
-      if (!fresh) this.token = localStorage.getItem(this.key) ?? undefined;
+      if (!fresh) this.token = sessionStorage.getItem(this.key) ?? undefined;
+    } catch {}
+    try {
+      if (!fresh && !this.token) this.token = localStorage.getItem(this.key) ?? undefined;
     } catch {}
   }
 
@@ -154,7 +141,7 @@ export class RemoteSession implements Session {
 
   private open(ready?: () => void, fail?: (error: Error) => void): void {
     if (this.closed) return;
-    const socket = new WebSocket(this.url);
+    const socket = new WebSocket(this.serverUrl);
     this.socket = socket;
     this.seq = 0;
     let welcomed = false;
@@ -184,6 +171,9 @@ export class RemoteSession implements Session {
           const snapshot = snapshotSchema.parse(message.snapshot);
           this.playerId = snapshot.self.id;
           this.token = message.token;
+          try {
+            sessionStorage.setItem(this.key, message.token);
+          } catch {}
           try {
             localStorage.setItem(this.key, message.token);
           } catch {
@@ -236,13 +226,17 @@ export class RemoteSession implements Session {
     socket.onerror = () => {
       /* onclose handles retry and failure once. */
     };
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       clearTimeout(timeout);
       this.pendingMove = undefined;
       if (this.closed) return;
       if (!welcomed && fail) {
         this.closed = true;
         fail(new Error('Could not connect to the world server.'));
+        return;
+      }
+      if (event.code === 1008) {
+        this.status = 'Could not rejoin · return to menu to join again';
         return;
       }
       this.status = 'Disconnected · reconnecting…';

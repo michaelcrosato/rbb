@@ -34,6 +34,15 @@ The [rendering matrix](rendering-and-world.md) records implemented effects and d
 
 These implementations have bounded budgets and documented quality limits. Physical-device profiling, probe visibility/vertical layers, cloud-to-ground shadows, stronger temporal masks/reconstruction and larger-world streaming remain follow-up work.
 
+## Four-player co-op
+
+- [x] Four simultaneous authoritative survivors, bounded handshakes and explicit full-world rejection.
+- [x] Shareable server invites, remembered join details, live crew roster and teammate map markers.
+- [x] Render-rate remote survivor smoothing and per-tab survivor resume storage.
+- [x] Concurrent join/contention integration tests and four-browser gameplay, overflow, shared camp, same-browser identity and touch-layout coverage in CI.
+
+Player-hosted browser sessions, automatic relays/server discovery, reserved reconnect slots, chat and client prediction remain future work. A running persistent world server is required; the hosting walkthrough covers localhost, LAN and a public WSS deployment.
+
 ## Engineering follow-ups from the 2026-09-14 audit
 
 Verified by reading the code, deferred because each needs browser or hardware evidence before it is clearly worth its risk:

@@ -25,7 +25,9 @@ For a shared world, run this in another terminal:
 npm run dev:server
 ```
 
-Choose **Join a world**, enter `ws://localhost:8787`, and join. The server creates `data/world.db`. Other clients on your LAN need the host's address and their exact browser origin listed in `ALLOWED_ORIGINS`. Production clients use HTTPS and `wss://`. See [deployment](docs/deployment.md).
+Choose **Join a world**, enter `ws://localhost:8787`, and join. Up to **4 players** can explore, gather, craft and build in the same world simultaneously. Open **Crew & invite** from Pause (or the `1/4` HUD button) to see your crew and copy an invite link. The map shows your teammates. A fifth player receives a world-full message and can join when someone leaves.
+
+The server creates `data/world.db`. Other clients on your LAN need the host's address and their exact browser origin listed in `ALLOWED_ORIGINS`; localhost links only work on the host computer. Production clients use HTTPS and `wss://`. See the [four-player hosting walkthrough](docs/deployment.md#play-together-locally-or-on-a-lan).
 
 ## Play
 
@@ -57,7 +59,7 @@ Haven meadow has guaranteed wood, stone, flax, berries, and a freshwater spring 
 - Five land species (boar, deer, wolf, fox, rabbit) and three marine species (fish, turtle, dolphin), habitat-aware movement, threat responses, animation, loot and respawn.
 - Quick developer tools, 27 editable world variables, named/importable variations, entity inspection and recoverable solo checkpoints. Online mutations require an explicitly enabled test server.
 - Version 2 solo saves with explicit v1 migration, schema validation, previous-save recovery, export/import, and storage failure messages. Network protocol 2 requires matching client/server upgrades.
-- Optional authoritative Node/WebSocket server: command validation, replay protection, speed and reach authority, action/payload/connection limits, origin checks, private inventories, guest resume sessions, reconnect backoff, stale-input clearing, slow-client rejection, SQLite WAL snapshots, recovery and health endpoint.
+- Four-player cooperative worlds with invites, live crew roster, teammate map markers and smoothed remote survivors. Optional authoritative Node/WebSocket server: command validation, replay protection, speed and reach authority, action/payload/connection limits, origin checks, private inventories, guest resume sessions, reconnect backoff, stale-input clearing, slow-client rejection, SQLite WAL snapshots, recovery and health endpoint.
 - Reproducible npm toolchain; lint, typecheck, build, simulation/abuse/persistence tests, desktop and touch browser tests, CI artifacts, container setup, and Vercel configuration.
 
 ## Develop and verify

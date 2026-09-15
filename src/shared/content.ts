@@ -270,7 +270,7 @@ export const BALANCE = {
   buildRange: 8,
   daySeconds: 1200,
   maxBuildings: 512,
-  maxPlayers: 16,
+  maxPlayers: 4,
   maxSurvivors: 512,
 } as const;
 

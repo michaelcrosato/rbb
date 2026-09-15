@@ -19,6 +19,7 @@ import { getSnapshot, LocalSession, RemoteSession } from './session';
 import type { Session } from './session';
 import { HOTBAR, UI } from './ui/ui';
 import type { Panel } from './ui/ui';
+import { normalizeServerUrl, worldInviteUrl } from './multiplayer';
 
 const settingsSchema = z.object({
   quality: z.enum(['auto', 'high', 'balanced', 'mobile', 'low']),
@@ -78,6 +79,12 @@ export class Game {
         JSON.parse(localStorage.getItem('rbb.settings.v1') ?? 'null'),
       );
       if (parsed.success) this.settings = parsed.data;
+    } catch {}
+    try {
+      const recent = z
+        .object({ serverUrl: z.string(), name: seedSchema.max(24) })
+        .parse(JSON.parse(localStorage.getItem('rbb.multiplayer.v1') ?? 'null'));
+      this.ui.joinDefaults = { ...recent, serverUrl: normalizeServerUrl(recent.serverUrl) };
     } catch {}
     this.renderer = new WorldRenderer(this.ui.canvas, generateWorld(DEFAULT_SEED));
     this.renderer.applySettings(this.settings);
@@ -177,6 +184,15 @@ export class Game {
       { signal },
     );
     if (loaded.warning) this.ui.toast(loaded.warning, true);
+    const invitedWorld = new URL(location.href).searchParams.get('world');
+    if (invitedWorld) {
+      try {
+        this.ui.joinDefaults.serverUrl = normalizeServerUrl(invitedWorld);
+        this.openPanel('online');
+      } catch (error) {
+        this.ui.toast(error instanceof Error ? error.message : 'Invalid world invite.', true);
+      }
+    }
     this.request = requestAnimationFrame((time) => this.frame(time));
   }
 
@@ -199,6 +215,10 @@ export class Game {
       if (this.session.mode === 'solo') this.save();
     }
     this.ui.showPanel(panel, this.player(), this.settings);
+    if (panel === 'team' && this.session)
+      this.ui.updateTeam(this.session.state, this.player()!, this.session.status);
+    if (panel === 'map' && this.session)
+      this.ui.drawMap(this.session.world, this.session.state, this.player()!);
     if (panel === 'developer') this.developer.render();
     if (document.pointerLockElement) document.exitPointerLock();
   }
@@ -265,7 +285,9 @@ export class Game {
         ),
       );
     else if (action === 'close' || action === 'resume') this.resume();
-    else if (['inventory', 'build', 'map', 'pause', 'settings', 'guide', 'online'].includes(action))
+    else if (
+      ['inventory', 'build', 'map', 'pause', 'settings', 'guide', 'online', 'team'].includes(action)
+    )
       this.openPanel(action as Panel);
     else if (action === 'apply-settings') {
       const root = this.ui.root;
@@ -350,7 +372,15 @@ export class Game {
     else if (action === 'import')
       this.ui.root.querySelector<HTMLInputElement>('#import-file')!.click();
     else if (action === 'connect') await this.connect();
-    else if (action === 'reload') location.reload();
+    else if (action === 'copy-invite' && this.ui.inviteUrl) {
+      try {
+        await navigator.clipboard.writeText(this.ui.inviteUrl);
+        this.ui.toast('Invite link copied. Send it to your crew.');
+      } catch {
+        this.ui.root.querySelector<HTMLInputElement>('#world-invite')?.select();
+        this.ui.toast('Select and copy the invite link above.');
+      }
+    } else if (action === 'reload') location.reload();
   }
 
   private async startNew(): Promise<void> {
@@ -371,6 +401,7 @@ export class Game {
   private async attach(session: Session): Promise<void> {
     this.session?.close();
     this.session = session;
+    this.ui.inviteUrl = session instanceof RemoteSession ? worldInviteUrl(session.serverUrl) : '';
     this.developer.attach();
     this.renderer.setWorld(session.world);
     this.syncedTick = -1;
@@ -412,6 +443,8 @@ export class Game {
       return;
     }
     this.connecting = true;
+    const button = root.querySelector<HTMLButtonElement>('[data-action="connect"]')!;
+    button.disabled = true;
     status.textContent = 'Connecting to the world…';
     try {
       const session = await RemoteSession.connect(
@@ -419,12 +452,23 @@ export class Game {
         name,
         (root.querySelector('#fresh-survivor') as HTMLInputElement).checked,
       );
-      if (this.ui.panel !== 'online') session.close();
-      else await this.attach(session);
+      if (this.ui.panel !== 'online' || root.querySelector('#connect-status') !== status)
+        session.close();
+      else {
+        this.ui.joinDefaults = {
+          serverUrl: session.serverUrl,
+          name: session.state.players[session.playerId].name,
+        };
+        try {
+          localStorage.setItem('rbb.multiplayer.v1', JSON.stringify(this.ui.joinDefaults));
+        } catch {}
+        await this.attach(session);
+      }
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : 'Connection failed.';
     } finally {
       this.connecting = false;
+      button.disabled = false;
     }
   }
 
@@ -544,7 +588,15 @@ export class Game {
       this.uiTime += dt;
       this.saveTime += paused ? 0 : dt;
       if (this.uiTime > 0.1) {
-        this.ui.update(session.state, p, session.world, this.input.yaw, this.target, session.mode);
+        this.ui.update(
+          session.state,
+          p,
+          session.world,
+          this.input.yaw,
+          this.target,
+          session.mode,
+          `${session.status} · ${session.ping} ms`,
+        );
         if (this.ui.panel === 'developer') this.developer.update();
         this.uiTime = 0;
         if (session.mode === 'online') this.ui.setStatus(`${session.status} · ${session.ping} ms`);
@@ -587,6 +639,8 @@ export class Game {
       mode: this.session?.mode,
       tick: this.session?.state.tick,
       player: p,
+      players: this.session && p ? getSnapshot(this.session).players : [],
+      remoteSurvivors: this.renderer.remoteSurvivors,
       look: { yaw: this.input.yaw, pitch: this.input.pitch },
       resources: p
         ? this.session!.world.resources.filter(
