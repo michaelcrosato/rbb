@@ -422,6 +422,17 @@ export class Game {
           this.audio.play(event.type);
           if (event.type === 'gather') this.renderer.swingTool();
         });
+    // Menus can open before the next render frame. Initialize their session and
+    // player state now so an online join cannot expose the previous solo controls.
+    this.ui.update(
+      session.state,
+      player,
+      session.world,
+      player.yaw,
+      null,
+      session.mode,
+      session.status,
+    );
     this.ui.showGame(true);
     this.ui.hidePanel();
     this.input.active = true;

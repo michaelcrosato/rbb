@@ -21,6 +21,7 @@ async function prepare(page: Page, errors: string[]) {
   await page.locator('#quality').selectOption('mobile');
   await page.getByText('Rendering effects', { exact: true }).press('Enter');
   await page.locator('[data-graphics="resolutionScale"]').fill('0.5');
+  await page.locator('[data-graphics="viewDistance"]').fill('0.5');
   await page.getByRole('button', { name: 'Apply settings' }).press('Enter');
 }
 
@@ -33,14 +34,49 @@ async function connect(page: Page, url: string, name: string) {
   await expect.poll(async () => (await diagnostics(page)).mode).toBe('online');
 }
 
+test('session controls are ready before the first game frame after joining or returning to solo', async ({
+  page,
+}) => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'rbb-session-ui-'));
+  const server = await startWorldServer({ port: 0, host: '127.0.0.1', dataDir, log: () => {} });
+  const errors: string[] = [];
+  try {
+    await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
+    await prepare(page, errors);
+    await expect.poll(async () => (await diagnostics(page)).renderer.drawCalls).toBeGreaterThan(0);
+    // Keep the rendered menu, but delay the next application frame. Joining and
+    // opening menus still use real network events and keyboard controls.
+    await page.clock.pauseAt(new Date('2026-01-01T01:00:00Z'));
+    await connect(page, `ws://127.0.0.1:${server.port}`, 'Immediate crew');
+    await expect(page.getByRole('button', { name: 'Crew and invite' })).toBeVisible();
+    if ((await diagnostics(page)).panel !== 'pause')
+      await page.getByRole('button', { name: 'Pause', exact: true }).press('Enter');
+    await expect(page.getByRole('button', { name: 'Crew & invite' })).toBeVisible();
+    await page.getByRole('button', { name: 'Leave world & return to menu' }).press('Enter');
+    await page.getByRole('button', { name: 'Enter the frontier' }).press('Enter');
+    await expect(page.locator('#hud')).toBeVisible();
+    if ((await diagnostics(page)).panel !== 'pause')
+      await page.getByRole('button', { name: 'Pause', exact: true }).press('Enter');
+    await expect(page.getByRole('button', { name: 'Save & return to menu' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Crew & invite' })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+    await server.close();
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('four survivors play in one world, share a camp and invite, and free a full-world slot', async ({
   browser,
 }, testInfo) => {
   test.setTimeout(process.env.CI ? 360000 : 180000);
   const dataDir = await mkdtemp(join(tmpdir(), 'rbb-four-browser-'));
   const server = await startWorldServer({ port: 0, host: '127.0.0.1', dataDir, log: () => {} });
-  const viewport = { width: 1024, height: 640 };
-  const contexts = [await browser.newContext({ viewport })];
+  // Five software-rendered worlds share one CI runner. Bound raster work while
+  // preserving the desktop layout and all gameplay assertions.
+  const contextOptions = { viewport: { width: 1024, height: 640 }, deviceScaleFactor: 0.5 };
+  const contexts = [await browser.newContext(contextOptions)];
   const errors: string[] = [];
   const serverUrl = `ws://127.0.0.1:${server.port}/`;
   try {
@@ -51,12 +87,15 @@ test('four survivors play in one world, share a camp and invite, and free a full
     // repeated full-resolution startup and world reloads on software-rendered CI.
     const preferences = await contexts[0].storageState();
     const peerContexts = await Promise.all(
-      Array.from({ length: 4 }, () => browser.newContext({ viewport, storageState: preferences })),
+      Array.from({ length: 4 }, () =>
+        browser.newContext({ ...contextOptions, storageState: preferences }),
+      ),
     );
     contexts.push(...peerContexts);
     const [b, c, d, overflow] = await Promise.all(peerContexts.map((context) => context.newPage()));
     await connect(a, serverUrl, 'Avery');
     await a.keyboard.press('Escape');
+    await expect(a.getByRole('button', { name: 'Crew & invite' })).toBeVisible();
     await a.getByRole('button', { name: 'Crew & invite' }).press('Enter');
     await expect(a.locator('#crew-count')).toHaveText('1 / 4 survivors');
     const invite = await a.getByLabel('Invite friends').inputValue();
