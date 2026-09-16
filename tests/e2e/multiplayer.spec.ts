@@ -6,6 +6,13 @@ import { join } from 'node:path';
 import { startWorldServer } from '../../server/app';
 import { aimAt, diagnostics, gather, walkTo } from './helpers';
 
+// DOM trace snapshots are awaited before input dispatch. Across five software
+// WebGL contexts that delays key releases; keep action/source traces
+// and the explicit milestone/failure screenshots without per-action DOM copies.
+test.use({
+  trace: { mode: 'retain-on-failure', screenshots: false, snapshots: false, sources: true },
+});
+
 function observeErrors(page: Page, errors: string[]) {
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => {

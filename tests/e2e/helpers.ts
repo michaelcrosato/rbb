@@ -180,12 +180,9 @@ export async function gather(page: Page, id: string, hits: number): Promise<void
   const { resources, player } = await diagnostics(page);
   const r = resources.find((r) => r.id === id)!;
   const dist = Math.hypot(player.position.x - r.x, player.position.z - r.z);
-  if (dist > 3)
-    await walkTo(
-      page,
-      r.x + ((player.position.x - r.x) / dist) * 2.5,
-      r.z + ((player.position.z - r.z) / dist) * 2.5,
-    );
+  // Any side within reach is valid. A fixed approach point can end up behind a
+  // solid resource after a delayed key release, making navigation walk into it.
+  if (dist > 3) await walkTo(page, r.x, r.z, 2.5);
   await aimAt(page, r.x, r.y + (r.kind === 'tree' ? 1.5 : r.kind === 'rock' ? 0.9 : 0.5), r.z);
   await expect.poll(async () => (await diagnostics(page)).target).toBe(id);
   for (let i = 0; i < hits; i++) {
