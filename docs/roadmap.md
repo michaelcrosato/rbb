@@ -8,9 +8,9 @@
 - [x] Validated solo persistence, backup/recovery and save export/import.
 - [x] Playable authoritative multiplayer, reconnect, disk persistence and abuse limits.
 - [x] Unit, integration, browser, mobile-layout and soak verification; CI and contributor guidance.
-- [x] Vercel-ready static client and documented container server deployment.
+- [x] Published Vercel static client and documented container server deployment.
 
-Acceptance evidence and measured limits are recorded in [QA](qa.md). Physical RTX 3000/S25 testing, human balance feedback and production publication remain follow-up work; the static client and persistent server are ready for those steps.
+Acceptance evidence and measured limits are recorded in [QA](qa.md). The [solo client is live](https://rbb-nine.vercel.app). Physical RTX 3000/S25 testing, human balance feedback and public persistent-world hosting remain follow-up work.
 
 ## Living-world foundation · 0.2
 

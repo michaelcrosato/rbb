@@ -6,12 +6,16 @@ import { join } from 'node:path';
 import { startWorldServer } from '../../server/app';
 import { aimAt, diagnostics, gather, walkTo } from './helpers';
 
-async function prepare(page: Page, errors: string[]) {
+function observeErrors(page: Page, errors: string[]) {
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => {
     if (message.type() === 'error' || /GL_INVALID|WebGL:|cannot be cloned/.test(message.text()))
       errors.push(message.text());
   });
+}
+
+async function prepare(page: Page, errors: string[]) {
+  observeErrors(page, errors);
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).press('Enter');
   await page.locator('#quality').selectOption('mobile');
@@ -35,15 +39,22 @@ test('four survivors play in one world, share a camp and invite, and free a full
   test.setTimeout(process.env.CI ? 360000 : 180000);
   const dataDir = await mkdtemp(join(tmpdir(), 'rbb-four-browser-'));
   const server = await startWorldServer({ port: 0, host: '127.0.0.1', dataDir, log: () => {} });
-  const contexts = await Promise.all(
-    Array.from({ length: 5 }, () => browser.newContext({ viewport: { width: 1280, height: 800 } })),
-  );
-  const pages = await Promise.all(contexts.map((context) => context.newPage()));
+  const viewport = { width: 1024, height: 640 };
+  const contexts = [await browser.newContext({ viewport })];
   const errors: string[] = [];
-  const [a, b, c, d, overflow] = pages;
   const serverUrl = `ws://127.0.0.1:${server.port}/`;
   try {
+    const a = await contexts[0].newPage();
     await prepare(a, errors);
+    // Configure graphics through the real UI once, before creating any survivor.
+    // Reuse only those saved preferences in independent browser contexts, avoiding
+    // repeated full-resolution startup and world reloads on software-rendered CI.
+    const preferences = await contexts[0].storageState();
+    const peerContexts = await Promise.all(
+      Array.from({ length: 4 }, () => browser.newContext({ viewport, storageState: preferences })),
+    );
+    contexts.push(...peerContexts);
+    const [b, c, d, overflow] = await Promise.all(peerContexts.map((context) => context.newPage()));
     await connect(a, serverUrl, 'Avery');
     await a.keyboard.press('Escape');
     await a.getByRole('button', { name: 'Crew & invite' }).press('Enter');
@@ -56,7 +67,7 @@ test('four survivors play in one world, share a camp and invite, and free a full
     expect(await a.evaluate(() => navigator.clipboard.readText())).toBe(invite);
 
     for (const [i, page] of [b, c, d, overflow].entries()) {
-      await prepare(page, errors);
+      observeErrors(page, errors);
       await page.goto(invite);
       await expect(page.getByRole('heading', { name: 'Better with company.' })).toBeVisible();
       await expect(page.getByLabel('World server', { exact: true })).toHaveValue(serverUrl);
@@ -197,7 +208,8 @@ test('separate survivors in the same browser retain their identities across relo
     await prepare(a, errors);
     await connect(a, url, 'First');
     const first = (await diagnostics(a)).player.id;
-    await prepare(b, errors);
+    observeErrors(b, errors);
+    await b.goto('/');
     await b.getByRole('button', { name: 'Join a world' }).press('Enter');
     await b.getByRole('button', { name: 'Join world', exact: true }).press('Enter');
     await expect(b.locator('#connect-status')).toContainText('already connected');

@@ -2,6 +2,12 @@
 
 Advanced rendering 0.3 verification recorded on 2026-09-14 Pacific. This ledger distinguishes implementation, automated evidence, and physical-device QA. The [public CI history](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml) records checks for each revision. The older 0.2 evidence is retained below as a historical baseline.
 
+## Vercel and CI verification · 2026-09-15
+
+- The production client at [rbb-nine.vercel.app](https://rbb-nine.vercel.app) loads its menu and starts a rendered solo expedition without browser exceptions. `/api/health` returns status `ok`, version `0.3.0` and protocol `2`. GitHub reports the Vercel production deployment of `33cc021` completed successfully. A public persistent multiplayer server is still separate hosting work.
+- The first four-player GitHub browser job exhausted its six-minute budget while opening the fifth invite. The trace shows increasingly slow graphics setup and repeated world initialization; it had not reached the gameplay assertions. Setup now reuses graphics preferences saved through the real Settings UI before any survivor joins, opens each invite once, and uses a 1024 × 640 desktop viewport. All five browser contexts remain isolated and retain WebGL, real controls and the original assertions; retries remain disabled.
+- After the setup change, `npm run check`, `npm run format:check` and all 19 browser scenarios pass on Windows / Node 24.20.0. Both multiplayer scenarios also pass on Linux / Node 24.20.0 with forced SwiftShader and two-CPU affinity: 2.8 minutes for the four-player journey and 3.2 minutes total, within the unchanged timeout budgets. This is automation evidence, not target-device performance evidence.
+
 ## Four-player co-op · 2026-09-14
 
 - On Windows / Node 24.20.0, `npm run check` passes TypeScript, ESLint, 63 unit/integration tests and both production builds; `npm run format:check` passes. All 19 Playwright scenarios pass. The four-player desktop and touch journeys also pass after the final map-label adjustment. The dev page and join form were inspected with agent-browser, and desktop/mobile screenshots were reviewed directly.
@@ -95,7 +101,7 @@ Human device QA should record browser version, exact GPU/phone, viewport, preset
 - The world is a finite island, with chunk culling and optional GPU-buffer residency rather than unbounded world streaming.
 - Saves are origin-local, with one active solo slot and a previous healthy backup. Export before changing browser/device or clearing site data.
 - The local Docker daemon is not running; the image build/restart verification was executed successfully in GitHub CI.
-- Production Vercel publication and real hardware performance are not claimed by the static build alone.
+- The Vercel solo client is published and smoke-tested above. Public multiplayer hosting and target-device performance remain unverified.
 
 ## Reproduction commands
 
