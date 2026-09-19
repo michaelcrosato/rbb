@@ -238,7 +238,9 @@ test('developer brushes form a hillside cave that can be entered, built in, save
   await page.keyboard.press('KeyE');
   await expect.poll(async () => (await diagnostics(page)).buildings.length).toBe(1);
   await page.keyboard.press('KeyB');
-  await walkTo(page, 12, 80);
+  // Stay inside the cave but clear of the bedroll's 16 cm collision surface.
+  // The entire navigation tolerance must land on the floor being asserted.
+  await walkTo(page, 12, 81);
   expect((await diagnostics(page)).player.position.y).toBeCloseTo(8, 1);
   const bed = (await diagnostics(page)).buildings[0];
   await aimAt(page, bed.x, bed.y + 0.2, bed.z);

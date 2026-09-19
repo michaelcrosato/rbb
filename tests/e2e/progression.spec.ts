@@ -20,6 +20,9 @@ import { startWorldServer } from '../../server/app';
 import { testOrigins } from './server-options';
 
 test.use({
+  // Keep the desktop layout and WebGL path while bounding software raster cost,
+  // as in the multi-browser journeys. Hardware-quality evidence is separate.
+  deviceScaleFactor: 0.5,
   trace: { mode: 'retain-on-failure', screenshots: false, snapshots: false, sources: true },
 });
 
