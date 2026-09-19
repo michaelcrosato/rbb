@@ -27,7 +27,7 @@ test('a ranged shot uses equipped ammunition, damages distant wildlife and leave
   page,
 }, testInfo) => {
   const errors = observeProgressionErrors(page);
-  await startSolo(page, 'mobile');
+  await startSolo(page, 'mobile', 'keyboard');
   const world = generateWorld('quiet-frontier'),
     state = createState(world),
     sim = new Simulation(world, state),
@@ -69,7 +69,7 @@ test('a ranged shot uses equipped ammunition, damages distant wildlife and leave
   const bag = (await diagnostics(page)).bags[0];
   await aimAt(page, bag.x, bag.y + 0.3, bag.z);
   await page.keyboard.press('KeyE');
-  await page.getByRole('button', { name: 'Take all that fits', exact: false }).click();
+  await page.getByRole('button', { name: 'Take all that fits', exact: false }).press('Enter');
   await expect.poll(async () => (await diagnostics(page)).player.inventory.leather).toBe(3);
   expect((await diagnostics(page)).bags).toEqual([]);
   expect(errors).toEqual([]);
@@ -79,11 +79,11 @@ test('landmark maps lead to persistent shared salvage and rich quarry veins', as
   page,
 }, testInfo) => {
   const errors = observeProgressionErrors(page);
-  await startSolo(page, 'mobile');
+  await startSolo(page, 'mobile', 'keyboard');
   await page.keyboard.press('KeyM');
   await expect(page.locator('.site-card')).toHaveCount(6);
   await page.screenshot({ path: testInfo.outputPath('landmarks-map.png') });
-  await page.getByRole('button', { name: /Abandoned depot.*Track destination/ }).click();
+  await page.getByRole('button', { name: /Abandoned depot.*Track destination/ }).press('Enter');
   await expect(page.locator('#destination')).toContainText('Abandoned depot');
   const site = (await diagnostics(page)).sites.find((s) => s.kind === 'depot')!;
   await travel(page, site.x, site.z + 2.5);
@@ -92,7 +92,7 @@ test('landmark maps lead to persistent shared salvage and rich quarry veins', as
   await page.screenshot({ path: testInfo.outputPath('depot-world.png') });
   await page.keyboard.press('KeyE');
   await expect(page.getByRole('heading', { name: 'Abandoned depot', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Take all that fits', exact: false }).click();
+  await page.getByRole('button', { name: 'Take all that fits', exact: false }).press('Enter');
   await expect
     .poll(async () => (await diagnostics(page)).player.inventory.parts ?? 0)
     .toBeGreaterThan(0);
@@ -100,7 +100,7 @@ test('landmark maps lead to persistent shared salvage and rich quarry veins', as
     .poll(async () => Object.keys((await diagnostics(page)).siteStates[site.id].inventory).length)
     .toBe(0);
   await page.reload();
-  await page.getByRole('button', { name: 'Continue expedition' }).click();
+  await page.getByRole('button', { name: 'Continue expedition' }).press('Enter');
   expect((await diagnostics(page)).siteStates[site.id].inventory).toEqual({});
   const quarry = (await diagnostics(page)).sites.find((s) => s.kind === 'ironQuarry')!;
   await travel(page, quarry.x, quarry.z + 3);
@@ -109,11 +109,11 @@ test('landmark maps lead to persistent shared salvage and rich quarry veins', as
   )!;
   await grantMaterials(page, { ironPickaxe: 1 });
   await page.keyboard.press('Tab');
-  await page.locator('[data-action="item"][data-value="ironPickaxe"]').click();
-  await page.getByRole('button', { name: 'Manage Iron pickaxe' }).click();
+  await page.locator('[data-action="item"][data-value="ironPickaxe"]').press('Enter');
+  await page.getByRole('button', { name: 'Manage Iron pickaxe' }).press('Enter');
   await page.getByLabel('Quick slot', { exact: true }).selectOption('2');
-  await page.getByRole('button', { name: 'Assign slot' }).click();
-  await page.getByRole('button', { name: 'Close panel' }).click();
+  await page.getByRole('button', { name: 'Assign slot' }).press('Enter');
+  await page.getByRole('button', { name: 'Close panel' }).press('Enter');
   await travel(page, ore.x, ore.z + 2.5);
   await page.keyboard.press('Digit3');
   await gather(page, ore.id, 1);
@@ -127,7 +127,7 @@ test('a workshop turns ore into equipment, firearms and reinforced shelter with 
 }, testInfo) => {
   test.setTimeout(180000);
   const errors = observeProgressionErrors(page);
-  await startSolo(page, 'mobile');
+  await startSolo(page, 'mobile', 'keyboard');
   await grantMaterials(page, {
     wood: 200,
     stone: 100,
@@ -141,25 +141,25 @@ test('a workshop turns ore into equipment, firearms and reinforced shelter with 
     fiber: 50,
   });
   await craftRecipe(page, 'backpack');
-  await page.locator('[data-action="wear"][data-value="backpack"]').click();
+  await page.locator('[data-action="wear"][data-value="backpack"]').press('Enter');
   await expect.poll(async () => (await diagnostics(page)).player.worn.backpack).toBe('backpack');
-  await page.getByRole('button', { name: 'Close panel' }).click();
+  await page.getByRole('button', { name: 'Close panel' }).press('Enter');
   await walkTo(page, 0, 95, 0.3);
   const foundation = await placePiece(page, 'foundation', 0, 100);
   const frame = await placePiece(page, 'doorway', 0, 100);
   await inspectPiece(page, frame);
-  await page.getByRole('button', { name: 'Upgrade structure', exact: true }).click();
+  await page.getByRole('button', { name: 'Upgrade structure', exact: true }).press('Enter');
   await expect
     .poll(async () => (await diagnostics(page)).buildings.find((b) => b.id === frame.id)?.grade)
     .toBe('stone');
-  await page.getByRole('button', { name: 'Close panel' }).click();
+  await page.getByRole('button', { name: 'Close panel' }).press('Enter');
   const door = await placePiece(page, 'door', 0, 100);
   await inspectPiece(page, door);
-  await page.getByRole('button', { name: 'Open door', exact: true }).click();
+  await page.getByRole('button', { name: 'Open door', exact: true }).press('Enter');
   await expect
     .poll(async () => (await diagnostics(page)).buildings.find((b) => b.id === door.id)?.open)
     .toBe(true);
-  await page.getByRole('button', { name: 'Close panel' }).click();
+  await page.getByRole('button', { name: 'Close panel' }).press('Enter');
   await walkTo(page, foundation.x, foundation.z, 0.3);
   await expect
     .poll(async () => (await diagnostics(page)).player.position.y)
@@ -177,22 +177,22 @@ test('a workshop turns ore into equipment, firearms and reinforced shelter with 
   await walkTo(page, -6.5, 92.5, 0.3);
   await craftRecipe(page, 'metal', 20);
   await craftRecipe(page, 'armor');
-  await page.locator('[data-action="wear"][data-value="armor"]').click();
+  await page.locator('[data-action="wear"][data-value="armor"]').press('Enter');
   await craftRecipe(page, 'scrapPistol');
   await craftRecipe(page, 'gunpowder', 1);
   await craftRecipe(page, 'cartridge', 1);
   await craftRecipe(page, 'reinforcedPlate', 3);
-  await page.getByRole('button', { name: 'Weapons', exact: true }).click();
+  await page.getByRole('button', { name: 'Weapons', exact: true }).press('Enter');
   await page.screenshot({ path: testInfo.outputPath('workshop-recipes.png') });
-  await page.getByRole('button', { name: 'Manage Salvage pistol', exact: true }).click();
+  await page.getByRole('button', { name: 'Manage Salvage pistol', exact: true }).press('Enter');
   await page.getByLabel('Quick slot', { exact: true }).selectOption('0');
-  await page.getByRole('button', { name: 'Assign slot' }).click();
-  await page.getByRole('button', { name: 'Close panel' }).click();
+  await page.getByRole('button', { name: 'Assign slot' }).press('Enter');
+  await page.getByRole('button', { name: 'Close panel' }).press('Enter');
   const chest = await placePiece(page, 'storage', -6.5, 98);
   await walkTo(page, chest.x, chest.z - 2.5, 0.3);
   await inspectPiece(page, chest);
   await page.getByLabel('Store Wood quantity', { exact: true }).fill('20');
-  await page.getByRole('button', { name: 'Store Wood', exact: true }).click();
+  await page.getByRole('button', { name: 'Store Wood', exact: true }).press('Enter');
   await expect
     .poll(
       async () =>
@@ -201,23 +201,23 @@ test('a workshop turns ore into equipment, firearms and reinforced shelter with 
     .toBe(20);
   await page.screenshot({ path: testInfo.outputPath('shared-storage.png') });
   await page.getByLabel('Take Wood quantity', { exact: true }).fill('5');
-  await page.getByRole('button', { name: 'Take Wood', exact: true }).click();
+  await page.getByRole('button', { name: 'Take Wood', exact: true }).press('Enter');
   await expect
     .poll(
       async () =>
         (await diagnostics(page)).buildings.find((b) => b.id === chest.id)?.inventory.wood,
     )
     .toBe(15);
-  await page.getByRole('button', { name: 'Close panel' }).click();
+  await page.getByRole('button', { name: 'Close panel' }).press('Enter');
   await walkTo(page, 0, 95, 0.3);
   await inspectPiece(page, frame);
-  await page.getByRole('button', { name: 'Upgrade structure', exact: true }).click();
+  await page.getByRole('button', { name: 'Upgrade structure', exact: true }).press('Enter');
   await expect
     .poll(async () => (await diagnostics(page)).buildings.find((b) => b.id === frame.id)?.grade)
     .toBe('metal');
   await page.screenshot({ path: testInfo.outputPath('reinforced-structure.png') });
   await page.reload();
-  await page.getByRole('button', { name: 'Continue expedition' }).click();
+  await page.getByRole('button', { name: 'Continue expedition' }).press('Enter');
   const restored = await diagnostics(page);
   expect(restored.player.worn).toEqual({ armor: 'armor', backpack: 'backpack' });
   expect(restored.player.quickSlots[0]).toBe('scrapPistol');
@@ -230,7 +230,7 @@ test('players build a stairwell, climb onto an upper floor and roof a second sto
   page,
 }, testInfo) => {
   const errors = observeProgressionErrors(page);
-  await startSolo(page, 'mobile');
+  await startSolo(page, 'mobile', 'keyboard');
   await grantMaterials(page, { wood: 140, stone: 20, fiber: 40 });
   await walkTo(page, 0, 95, 0.3);
   const base = await placePiece(page, 'foundation', 0, 100);
@@ -252,7 +252,7 @@ test('players build a stairwell, climb onto an upper floor and roof a second sto
   await aimAt(page, 0, landing.y + 1.3, 96);
   await page.screenshot({ path: testInfo.outputPath('upper-storey.png') });
   await page.reload();
-  await page.getByRole('button', { name: 'Continue expedition' }).click();
+  await page.getByRole('button', { name: 'Continue expedition' }).press('Enter');
   expect((await diagnostics(page)).buildings.find((b) => b.id === roof.id)?.support).toBe(
     upperWall.id,
   );
@@ -323,16 +323,16 @@ test('inventory controls split a ground stack, preserve it on reload, and collec
     if (message.type() === 'error' || /GL_INVALID|WebGL:/.test(message.text()))
       errors.push(message.text());
   });
-  await startSolo(page, 'mobile');
+  await startSolo(page, 'mobile', 'keyboard');
   await page.keyboard.press('Tab');
-  await page.getByRole('button', { name: 'Manage Wild berries', exact: true }).click();
+  await page.getByRole('button', { name: 'Manage Wild berries', exact: true }).press('Enter');
   await page.getByLabel('Quantity to drop').fill('2');
   await page.screenshot({ path: testInfo.outputPath('split-stack.png') });
-  await page.getByRole('button', { name: 'Drop supplies', exact: false }).click();
+  await page.getByRole('button', { name: 'Drop supplies', exact: false }).press('Enter');
   await expect.poll(async () => (await diagnostics(page)).player.inventory.berries).toBe(1);
   await expect.poll(async () => (await diagnostics(page)).bags[0]?.inventory.berries).toBe(2);
   await page.reload();
-  await page.getByRole('button', { name: 'Continue expedition', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue expedition', exact: true }).press('Enter');
   const bag = (await diagnostics(page)).bags[0];
   expect(bag.inventory.berries).toBe(2);
   await aimAt(page, bag.x, bag.y + 0.3, bag.z);
@@ -341,12 +341,12 @@ test('inventory controls split a ground stack, preserve it on reload, and collec
   await page.keyboard.press('KeyE');
   await expect(page.getByRole('heading', { name: 'Ground supplies', exact: true })).toBeVisible();
   await page.getByLabel('Wild berries quantity').fill('1');
-  await page.getByRole('button', { name: 'Take Wild berries', exact: true }).click();
+  await page.getByRole('button', { name: 'Take Wild berries', exact: true }).press('Enter');
   await expect.poll(async () => (await diagnostics(page)).player.inventory.berries).toBe(2);
   await expect.poll(async () => (await diagnostics(page)).bags[0]?.inventory.berries).toBe(1);
   await expect(page.getByText('1 available', { exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('partial-collection.png') });
-  await page.getByRole('button', { name: 'Take all that fits', exact: false }).click();
+  await page.getByRole('button', { name: 'Take all that fits', exact: false }).press('Enter');
   await expect.poll(async () => (await diagnostics(page)).player.inventory.berries).toBe(3);
   await expect.poll(async () => (await diagnostics(page)).bags.length).toBe(0);
   await expect(page.getByRole('heading', { name: 'Supplies moved.', exact: true })).toBeVisible();
