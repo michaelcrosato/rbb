@@ -41,7 +41,8 @@ The server creates `data/world.db`. Other clients on your LAN need the host's ad
 | Tab / I        | Pack and crafting                                     |
 | 1–5            | Equip river stone, hatchet, pickaxe, berries, bandage |
 | B / 6          | Building menu; B cancels placement                    |
-| R              | Rotate building                                       |
+| T              | Terrain tools: dig, deposit dirt, flatten             |
+| R              | Sample terrain level, or rotate building              |
 | F              | Use equipped consumable, or eat a berry               |
 | M / Esc        | Map / pause                                           |
 | F2             | Developer tools                                       |
@@ -52,13 +53,13 @@ Haven meadow has guaranteed wood, stone, flax, berries, and a freshwater spring 
 
 ## What is implemented
 
-- 640 × 640 m seeded heightfield with matching triangle collision, spatial resource queries, chunk culling, instanced foliage/buildings, and adaptive resolution with recovery.
+- 640 × 640 m seeded island with sparse volumetric terrain edits, matching cave-floor/ceiling collision, chunk remeshing, spatial resource queries, instanced foliage/buildings, and adaptive resolution with recovery. Players can excavate, deposit dirt, flatten ground and build cave bases; developer tools add larger sphere/box, smooth and restore brushes. [Terrain controls and architecture](docs/terrain.md).
 - Moving sun and moon lighting/shadows, dawn/dusk, phased moon, stars, six weather conditions, foliage wind, wetness/snow, ocean waves/reflections/foam, underwater atmosphere, campfire lights and ambient particles. Optional AO, bloom, sun shafts, lens flare, planar coastal reflections and color controls. [Feature matrix and limits](docs/rendering-and-world.md).
 - Advanced opt-in rendering: cascaded shadows, volumetric clouds/fog, rasterized indirect-light probes, screen reflections, temporal upscaling, motion blur, depth of field, GPU occlusion queries and distant GPU-buffer residency. All default off, including on High. [Pipeline, comparisons, costs and next steps](docs/rendering-pipeline.md).
 - Fixed 30 Hz simulation, movement/jump/swim/dive, oxygen, stamina, hunger/thirst, resource depletion/regrowth, bounded inventories, atomic recipes, building validation, wildlife combat, cooking, healing, death/respawn, and persisted milestones.
 - Five land species (boar, deer, wolf, fox, rabbit) and three marine species (fish, turtle, dolphin), habitat-aware movement, threat responses, animation, loot and respawn.
 - Quick developer tools, 27 editable world variables, named/importable variations, entity inspection and recoverable solo checkpoints. Online mutations require an explicitly enabled test server.
-- Version 2 solo saves with explicit v1 migration, schema validation, previous-save recovery, export/import, and storage failure messages. Network protocol 2 requires matching client/server upgrades.
+- Version 3 solo saves with explicit v1/v2 migration, schema validation, previous-save recovery, export/import, and storage failure messages. Network protocol 3 requires matching client/server upgrades.
 - Four-player cooperative worlds with invites, live crew roster, teammate map markers and smoothed remote survivors. Optional authoritative Node/WebSocket server: command validation, replay protection, speed and reach authority, action/payload/connection limits, origin checks, private inventories, guest resume sessions, reconnect backoff, stale-input clearing, slow-client rejection, SQLite WAL snapshots, recovery and health endpoint.
 - Reproducible npm toolchain; lint, typecheck, build, simulation/abuse/persistence tests, desktop and touch browser tests, CI artifacts, container setup, and Vercel configuration.
 
@@ -77,7 +78,7 @@ npm run start:server   # run the built world server
 
 Tests use temporary databases. Browser test artifacts are in `test-results/` and `playwright-report/`; neither is committed. Development builds expose `window.rbbDiagnostics()`, which returns **read-only copies** for AI navigation and bug reports. Browser tests use real controls, including the visible developer tools when testing sandbox workflows; they do not call hidden gameplay mutators.
 
-Open **F2** or **Pause → Developer tools** to preview time/weather, spawn wildlife, fly, build freely, inspect entities and tune a variation without editing code. A world mutation marks the expedition as a sandbox and captures a solo recovery checkpoint. Normal **Settings → Rendering effects** changes only your device, including on ordinary multiplayer servers.
+Open **F2** or **Pause → Developer tools** to preview time/weather, spawn wildlife, fly, build freely, sculpt terrain, inspect entities and tune a variation without editing code. A world mutation marks the expedition as a sandbox and captures a solo recovery checkpoint. Normal **Settings → Rendering effects** changes only your device, including on ordinary multiplayer servers.
 
 Start with [architecture](docs/architecture.md), [rendering and developer tools](docs/rendering-and-world.md), [adding content](docs/adding-content.md), [QA and limits](docs/qa.md), and the [roadmap](docs/roadmap.md). Read [AGENTS.md](AGENTS.md) before editing.
 

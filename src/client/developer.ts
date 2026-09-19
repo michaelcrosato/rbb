@@ -5,6 +5,9 @@ import { developerSchema } from '../shared/developer';
 import { encodeSave, parseSave } from '../shared/save';
 import type { SaveFile } from '../shared/save';
 import { terrainHeight } from '../shared/world';
+import { brushSchema } from '../shared/terrain';
+import type { TerrainBrush } from '../shared/terrain';
+import { terrainAim } from '../shared/earthworks';
 import { habitatValid, MAX_ANIMALS } from '../shared/wildlife';
 import { DEFAULT_GRAPHICS, graphicsSchema } from './render/settings';
 import type { GraphicsSettings } from './render/settings';
@@ -24,6 +27,7 @@ const variationSchema = z
 const checkpointKey = 'rbb.developer.checkpoint.v1',
   presetsKey = 'rbb.developer.presets.v1';
 interface Options {
+  paint: (brush: TerrainBrush) => void;
   root: HTMLElement;
   session: () => Session | null;
   settings: () => RenderSettings;
@@ -80,6 +84,14 @@ export class DeveloperControls {
       'dev-preset-name',
       'dev-amount',
       'dev-item',
+      'dev-terrain-mode',
+      'dev-terrain-shape',
+      'dev-terrain-radius',
+      'dev-terrain-strength',
+      'dev-terrain-x',
+      'dev-terrain-y',
+      'dev-terrain-z',
+      'dev-terrain-level',
     ]) {
       const input = this.options.root.querySelector<HTMLInputElement>(`#${id}`);
       if (input)
@@ -137,6 +149,21 @@ export class DeveloperControls {
         true,
       );
     }
+  }
+  sculpt(brush: TerrainBrush): void {
+    this.execute({ action: 'terrain', brush });
+  }
+  private terrainBrush(): TerrainBrush {
+    return brushSchema.parse({
+      mode: this.value('terrain-mode'),
+      shape: this.value('terrain-shape'),
+      radius: Number(this.value('terrain-radius')),
+      strength: Number(this.value('terrain-strength')),
+      x: Number(this.value('terrain-x')),
+      y: Number(this.value('terrain-y')),
+      z: Number(this.value('terrain-z')),
+      level: Number(this.value('terrain-level')),
+    });
   }
   private execute(request: unknown): void {
     const session = this.options.session();
@@ -206,7 +233,20 @@ export class DeveloperControls {
         this.options.look(Math.atan2(-d.x, -d.z), Math.max(-1.45, Math.min(1.45, Math.asin(d.y))));
         return;
       }
-      if (action === 'tab') this.tab = value as DeveloperTab;
+      if (action === 'terrain-stamp') this.sculpt(this.terrainBrush());
+      else if (action === 'terrain-paint') {
+        this.options.paint(this.terrainBrush());
+        return;
+      } else if (action === 'terrain-sample') {
+        const p = session.state.players[session.playerId];
+        const hit = terrainAim(session.state, session.world, p);
+        const point = hit?.point ?? p.position;
+        for (const axis of ['x', 'y', 'z'] as const)
+          this.options.root.querySelector<HTMLInputElement>(`#dev-terrain-${axis}`)!.value =
+            point[axis].toFixed(2);
+        this.options.root.querySelector<HTMLInputElement>('#dev-terrain-level')!.value =
+          point.y.toFixed(2);
+      } else if (action === 'tab') this.tab = value as DeveloperTab;
       else if (action === 'time')
         this.execute({ action: 'time', hour: Number(value ?? this.value('hour')) });
       else if (action === 'speed') this.configure({ ...tuning, timeScale: Number(value) });

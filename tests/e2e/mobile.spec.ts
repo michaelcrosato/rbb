@@ -1,6 +1,64 @@
 import { test, expect } from '@playwright/test';
 import { diagnostics, startSolo } from './helpers';
 
+test('terrain tools excavate through touch controls and developer brushes fit both orientations', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => {
+    if (m.type() === 'error' || /GL_INVALID|WebGL:/.test(m.text())) errors.push(m.text());
+  });
+  await startSolo(page, 'mobile');
+  await page.getByRole('button', { name: 'Pause', exact: true }).tap();
+  await page.getByRole('button', { name: 'Developer tools' }).tap();
+  await page.getByRole('button', { name: 'Replace pack with test kit' }).tap();
+  await page.getByRole('button', { name: 'Close panel' }).tap();
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: 220, y: 340, id: 1 }],
+  });
+  for (let i = 1; i <= 8; i++) {
+    await page.waitForTimeout(20);
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: 220, y: 340 + i * 12.5, id: 1 }],
+    });
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect.poll(async () => (await diagnostics(page)).player.pitch).toBeLessThan(-0.3);
+  await page.getByRole('button', { name: 'Terrain tools', exact: true }).tap();
+  await page.screenshot({ path: testInfo.outputPath('terrain-tools-portrait.png') });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole('button', { name: 'Dig terrain', exact: false }).tap();
+  await expect.poll(async () => (await diagnostics(page)).terrainTool.hit !== null).toBe(true);
+  await page.getByRole('button', { name: 'Gather or place' }).tap();
+  await expect.poll(async () => (await diagnostics(page)).terrainMesh.revision).toBe(1);
+  expect((await diagnostics(page)).player.inventory.dirt).toBeGreaterThan(100);
+  await page.screenshot({ path: testInfo.outputPath('terrain-dug-touch.png') });
+  await page.getByRole('button', { name: 'Pause', exact: true }).tap();
+  await page.getByRole('button', { name: 'Developer tools' }).tap();
+  await page.getByRole('tab', { name: 'Terrain', exact: true }).tap();
+  await page.screenshot({ path: testInfo.outputPath('sculpt-tools-portrait.png') });
+  await page.setViewportSize({ width: 915, height: 412 });
+  await page.locator('#dev-terrain-mode').selectOption('add');
+  await page.locator('#dev-terrain-x').fill('12');
+  await page.locator('#dev-terrain-y').fill('8');
+  await page.locator('#dev-terrain-z').fill('82');
+  await page.locator('#dev-terrain-radius').fill('3');
+  await page.getByRole('button', { name: 'Apply terrain brush' }).tap();
+  await expect.poll(async () => (await diagnostics(page)).terrainMesh.revision).toBe(2);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('sculpt-tools-landscape.png') });
+  await page.getByRole('button', { name: 'Sculpt in world' }).tap();
+  await expect(page.getByRole('button', { name: 'Gather or place' })).toBeInViewport();
+  const hint = await page.locator('#terrain-hint').boundingBox();
+  expect(hint!.y).toBeGreaterThan(412 / 2 + 12);
+  await page.screenshot({ path: testInfo.outputPath('sculpt-world-landscape.png') });
+  expect(errors).toEqual([]);
+});
+
 test('a four-survivor crew, invite and map fit portrait and landscape touch screens', async ({
   page,
   browser,

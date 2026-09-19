@@ -8,8 +8,17 @@ import type { Environment, Tuning, celestial } from '../../src/shared/environmen
 import type { GraphicsSettings } from '../../src/client/render/settings';
 import type { WorldRenderer } from '../../src/client/render/renderer';
 import type { PublicPlayer } from '../../src/shared/protocol';
+import type { TerrainState, TerrainHit, TerrainBrush } from '../../src/shared/terrain';
 
 export interface Diagnostics {
+  terrain: TerrainState;
+  terrainMesh: { revision: number; samples: number; editedChunks: number; triangles: number };
+  terrainTool: {
+    mode: string | null;
+    level: number;
+    hit: TerrainHit | null;
+    developer: TerrainBrush | null;
+  };
   environment: Environment;
   tuning: Tuning;
   celestial: ReturnType<typeof celestial>;

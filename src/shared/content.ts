@@ -8,6 +8,13 @@ export interface ItemDefinition {
   color: string;
 }
 export const ITEMS = {
+  dirt: {
+    name: 'Excavated dirt',
+    description: 'Fill material from digging. Use Terrain tools to deposit it or level ground.',
+    weight: 0.1,
+    icon: 'stone',
+    color: '#b48b60',
+  },
   rock: {
     name: 'River stone',
     description: 'Your first tool. Slow, but dependable.',
@@ -66,7 +73,7 @@ export const ITEMS = {
   },
   pickaxe: {
     name: 'Stone pickaxe',
-    description: 'Break mineral deposits efficiently.',
+    description: 'Break deposits and excavate terrain, including cave walls.',
     weight: 2,
     icon: 'pickaxe',
     color: '#c9d9df',
@@ -116,7 +123,7 @@ export const RECIPES = {
     name: 'Stone pickaxe',
     cost: { wood: 10, stone: 12, fiber: 3 },
     output: { pickaxe: 1 },
-    description: 'Make short work of stone deposits.',
+    description: 'Gather stone faster, excavate terrain and level ground.',
   },
   bandage: {
     name: 'Field bandage',
@@ -260,6 +267,12 @@ export const MILESTONES = [
 export type MilestoneId = (typeof MILESTONES)[number]['id'];
 
 export const BALANCE = {
+  terrainReach: 5,
+  eyeHeight: 1.65,
+  terrainRadius: 1.5,
+  terrainCooldown: 0.6,
+  terrainStamina: 4,
+  dirtPerVolume: 10,
   tickRate: 30,
   walkSpeed: 5,
   sprintSpeed: 8,

@@ -6,6 +6,8 @@ import type { Species } from './content';
 import { populateWildlife } from './wildlife';
 import { SPAWN, terrainHeight, WORLD_VERSION } from './world';
 import type { WorldDefinition } from './world';
+import { emptyTerrain } from './terrain';
+import type { TerrainState } from './terrain';
 
 export interface Vec3 {
   x: number;
@@ -89,7 +91,8 @@ export interface Animal {
   respawnAt: number;
 }
 export interface GameState {
-  version: 2;
+  version: 3;
+  terrain: TerrainState;
   environment: Environment;
   tuning: Tuning;
   sandbox: boolean;
@@ -144,7 +147,8 @@ export function createPlayer(id: string, name: string, world: WorldDefinition): 
 
 export function createState(world: WorldDefinition): GameState {
   return {
-    version: 2,
+    version: 3,
+    terrain: emptyTerrain(),
     environment: createEnvironment(),
     tuning: { ...DEFAULT_TUNING },
     sandbox: false,

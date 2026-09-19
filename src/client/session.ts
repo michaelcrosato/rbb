@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { BALANCE } from '../shared/content';
 import { PROTOCOL_VERSION, snapshotFor } from '../shared/protocol';
 import type { Command, ServerMessage, Snapshot } from '../shared/protocol';
-import { stateSchema } from '../shared/save';
+import { stateSchema, MAX_SAVE_BYTES } from '../shared/save';
+import { terrainUpdateSchema, applyTerrainUpdate } from '../shared/terrain';
 import { Simulation } from '../shared/simulation';
 import { createState } from '../shared/state';
 import type { GameEvent, GameState, Result } from '../shared/state';
@@ -80,6 +81,7 @@ const publicPlayer = stateSchema.shape.players.valueType.pick({
   equipped: true,
 });
 const snapshotSchema = z.object({
+  terrain: terrainUpdateSchema.optional(),
   environment: stateSchema.shape.environment,
   tuning: stateSchema.shape.tuning,
   sandbox: z.boolean(),
@@ -162,7 +164,7 @@ export class RemoteSession implements Session {
     socket.onmessage = (e) => {
       this.lastMessage = performance.now();
       try {
-        if (typeof e.data !== 'string' || e.data.length > 2_000_000)
+        if (typeof e.data !== 'string' || e.data.length > MAX_SAVE_BYTES)
           throw new Error('Invalid server payload.');
         const message = JSON.parse(e.data) as ServerMessage;
         if (message.type === 'welcome') {
@@ -255,6 +257,8 @@ export class RemoteSession implements Session {
       this.state = createState(this.world);
     }
     this.devAllowed = snapshot.devAllowed;
+    if (snapshot.terrain)
+      this.state.terrain = applyTerrainUpdate(this.state.terrain, snapshot.terrain);
     this.state.environment = snapshot.environment;
     this.state.tuning = snapshot.tuning;
     this.state.sandbox = snapshot.sandbox;
@@ -287,7 +291,17 @@ export class RemoteSession implements Session {
       this.onResult({ ok: false, message: 'Reconnect before taking an action.' });
       return;
     }
+    this.flushMove();
     this.socket.send(JSON.stringify({ type: 'command', seq: ++this.seq, command }));
+  }
+
+  private flushMove(): void {
+    if (!this.pendingMove || this.socket?.readyState !== WebSocket.OPEN) return;
+    this.socket.send(
+      JSON.stringify({ type: 'command', seq: ++this.seq, command: this.pendingMove }),
+    );
+    this.pendingMove = undefined;
+    this.sinceMove = 0;
   }
 
   update(dt: number): void {
@@ -295,11 +309,7 @@ export class RemoteSession implements Session {
     this.sincePing += dt;
     if (this.socket?.readyState !== WebSocket.OPEN || !this.status.startsWith('Connected')) return;
     if (this.pendingMove && this.sinceMove >= 1 / BALANCE.tickRate) {
-      this.socket.send(
-        JSON.stringify({ type: 'command', seq: ++this.seq, command: this.pendingMove }),
-      );
-      this.pendingMove = undefined;
-      this.sinceMove = 0;
+      this.flushMove();
     }
     if (this.sincePing > 3) {
       this.sincePing = 0;
@@ -318,5 +328,5 @@ export class RemoteSession implements Session {
   }
 }
 
-export const getSnapshot = (session: Session): Snapshot =>
-  snapshotFor(session.state, session.playerId, session.devAllowed);
+export const getSnapshot = (session: Session, terrainSince = -1): Snapshot =>
+  snapshotFor(session.state, session.playerId, session.devAllowed, terrainSince);

@@ -13,6 +13,7 @@ import { Simulation } from '../../src/shared/simulation';
 import { createState, idleInput } from '../../src/shared/state';
 import { generateWorld } from '../../src/shared/world';
 import { BALANCE } from '../../src/shared/content';
+import { applyTerrainUpdate, emptyTerrain, terrainFloor } from '../../src/shared/terrain';
 
 type RunningServer = Awaited<ReturnType<typeof startWorldServer>>;
 const servers: RunningServer[] = [],
@@ -70,7 +71,7 @@ async function connect(server: RunningServer): Promise<Peer> {
 }
 async function joinWorld(server: RunningServer, token?: string) {
   const peer = await connect(server);
-  peer.send({ type: 'hello', protocol: 2, name: 'Tester', ...(token ? { token } : {}) });
+  peer.send({ type: 'hello', protocol: 3, name: 'Tester', ...(token ? { token } : {}) });
   const welcome = await peer.wait('welcome');
   return { peer, welcome };
 }
@@ -81,6 +82,82 @@ afterEach(async () => {
 });
 
 describe('authoritative world server', () => {
+  it('replicates ordinary-player excavation as deltas, rejects terrain cheats, and restores edits after restart', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'rbb-terrain-test-'));
+    directories.push(dir);
+    const world = generateWorld('quiet-frontier');
+    const sim = new Simulation(world, createState(world));
+    const p = sim.addPlayer('earthworker', 'Earthworker');
+    p.position = { x: 20, y: 8, z: 88 };
+    p.inventory = { pickaxe: 1 };
+    p.equipped = 'pickaxe';
+    const token = 'c'.repeat(64); // Synthetic test identity, isolated temporary DB.
+    const store = new WorldStore(join(dir, 'world.db'));
+    store.save(sim.state);
+    store.register(token, p.id);
+    store.close();
+    const server = await setup(dir);
+    const a = await joinWorld(server, token),
+      b = await joinWorld(server);
+    let remote = applyTerrainUpdate(emptyTerrain(), b.welcome.snapshot.terrain!);
+    a.peer.send({
+      type: 'command',
+      seq: 1,
+      command: { type: 'move', input: { ...idleInput(), pitch: -0.4 } },
+    });
+    await a.peer.wait('snapshot', (m) => m.snapshot.self.pitch === -0.4);
+    a.peer.send({
+      type: 'command',
+      seq: 2,
+      command: { type: 'terrain', request: { mode: 'dig', level: 8 } },
+    });
+    expect(
+      (await a.peer.wait('events', (m) => m.events.some((e) => e.message === 'Terrain excavated.')))
+        .events,
+    ).toContainEqual(expect.objectContaining({ type: 'gather', playerId: p.id }));
+    const changed = (await b.peer.wait('snapshot', (m) => m.snapshot.terrain?.revision === 1))
+      .snapshot;
+    expect(changed.terrain?.base).toBe(0);
+    remote = applyTerrainUpdate(remote, changed.terrain!);
+    expect(terrainFloor(remote, world, 20, 84.5)).toBeLessThan(8);
+    expect(changed.players.every((player) => !('inventory' in player))).toBe(true);
+    const inventory = (
+      await a.peer.wait('snapshot', (m) => (m.snapshot.self.inventory.dirt ?? 0) > 0)
+    ).snapshot.self.inventory;
+    const fresh = await b.peer.wait(
+      'snapshot',
+      (m) => m.snapshot.tick > changed.tick && !m.snapshot.terrain,
+    );
+    expect(fresh.snapshot.terrain).toBeUndefined();
+    a.peer.send({
+      type: 'command',
+      seq: 3,
+      command: {
+        type: 'dev',
+        request: {
+          action: 'terrain',
+          brush: {
+            mode: 'dig',
+            shape: 'box',
+            x: 20,
+            y: 4,
+            z: 88,
+            radius: 12,
+            strength: 1,
+            level: 2,
+          },
+        },
+      },
+    });
+    expect((await a.peer.wait('result', (m) => m.seq === 3)).result.ok).toBe(false);
+    await server.close();
+    const restarted = await setup(dir),
+      resumed = await joinWorld(restarted, token);
+    const restored = applyTerrainUpdate(emptyTerrain(), resumed.welcome.snapshot.terrain!);
+    expect(restored).toEqual(remote);
+    expect(resumed.welcome.snapshot.self.inventory).toEqual(inventory);
+    expect(resumed.welcome.snapshot.sandbox).toBe(false);
+  });
   it('reports readiness, shares world state and keeps other inventory private', async () => {
     const server = await setup();
     const a = await joinWorld(server),
@@ -88,7 +165,7 @@ describe('authoritative world server', () => {
     const health = (await fetch(`http://127.0.0.1:${server.port}/health`).then((r) =>
       r.json(),
     )) as { players: number; ready: boolean };
-    expect(health).toMatchObject({ ready: true, players: 2, version: pkg.version, protocol: 2 });
+    expect(health).toMatchObject({ ready: true, players: 2, version: pkg.version, protocol: 3 });
     const snapshot = (await a.peer.wait('snapshot', (m) => m.snapshot.players.length === 1))
       .snapshot;
     expect(snapshot.players[0].id).toBe(b.welcome.playerId);
@@ -191,10 +268,10 @@ describe('authoritative world server', () => {
     const server = await setup(),
       { welcome } = await joinWorld(server);
     const duplicate = await connect(server);
-    duplicate.send({ type: 'hello', protocol: 2, name: 'Tester', token: welcome.token });
+    duplicate.send({ type: 'hello', protocol: 3, name: 'Tester', token: welcome.token });
     expect((await duplicate.wait('error')).message).toContain('already connected');
     const fake = await connect(server);
-    fake.send({ type: 'hello', protocol: 2, name: 'Tester', token: 'a'.repeat(64) });
+    fake.send({ type: 'hello', protocol: 3, name: 'Tester', token: 'a'.repeat(64) });
     expect((await fake.wait('error')).message).toContain('no longer valid');
     const hostile = new WebSocket(`ws://127.0.0.1:${server.port}`, {
       origin: 'https://untrusted.example',
@@ -243,7 +320,7 @@ describe('authoritative world server', () => {
     expect(BALANCE.maxPlayers).toBe(4);
     const peers = await Promise.all(Array.from({ length: 6 }, () => connect(server)));
     const closed = peers.map((peer) => once(peer.ws, 'close'));
-    peers.forEach((peer, i) => peer.send({ type: 'hello', protocol: 2, name: `Crew ${i}` }));
+    peers.forEach((peer, i) => peer.send({ type: 'hello', protocol: 3, name: `Crew ${i}` }));
     const admitted: { peer: Peer; welcome: Extract<ServerMessage, { type: 'welcome' }> }[] = [];
     for (const peer of peers) {
       const deadline = performance.now() + 4000;

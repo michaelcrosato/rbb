@@ -28,6 +28,24 @@ export interface WorldDefinition {
 
 /** Heights at grid vertices. Keep versioned: changing this changes every saved world's topology. */
 export function vertexHeight(x: number, z: number, seed: number): number {
+  let cache = heightCaches.get(seed);
+  if (!cache) {
+    // Bounded memoization only; eviction cannot change generated values. Shared
+    // terrain queries revisit these same vertices during collision and meshing.
+    if (heightCaches.size >= 8) heightCaches.delete(heightCaches.keys().next().value!);
+    cache = new Map();
+    heightCaches.set(seed, cache);
+  }
+  const key = `${x},${z}`;
+  const cached = cache.get(key);
+  if (cached !== undefined) return cached;
+  const height = generateVertexHeight(x, z, seed);
+  if (cache.size >= 30_000) cache.clear();
+  cache.set(key, height);
+  return height;
+}
+const heightCaches = new Map<number, Map<string, number>>();
+function generateVertexHeight(x: number, z: number, seed: number): number {
   const coast = noise(x / 85, z / 85, seed + 7) * 32;
   const radius = Math.hypot(x * 0.92, z * 1.1);
   const falloff = clamp((224 + coast - radius) / 105, 0, 1);

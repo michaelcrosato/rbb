@@ -14,13 +14,16 @@ import {
 import type { BuildingKind, Inventory, ItemId } from '../../shared/content';
 import { canAfford, inventoryWeight } from '../../shared/inventory';
 import type { GameState, PlayerState } from '../../shared/state';
-import { biomeAt, DEFAULT_SEED, terrainHeight, WORLD_SIZE } from '../../shared/world';
+import { biomeAt, DEFAULT_SEED, WORLD_SIZE } from '../../shared/world';
 import type { WorldDefinition } from '../../shared/world';
+import { terrainFloor } from '../../shared/terrain';
 import type { RenderSettings, Target } from '../render/renderer';
 import { escapeHtml as esc, icon } from './icons';
 import { graphicsMarkup } from './developer';
+import { terrainToolsMarkup } from '../terrain-tools';
 
 export type Panel =
+  | 'terrain'
   | 'developer'
   | 'inventory'
   | 'build'
@@ -40,6 +43,7 @@ export class UI {
   readonly hud: HTMLElement;
   readonly modal: HTMLElement;
   panel: Panel | null = null;
+  terrainLevel = 8;
   joinDefaults = {
     serverUrl: import.meta.env.VITE_SERVER_URL || 'ws://localhost:8787',
     name: 'Wanderer',
@@ -51,6 +55,8 @@ export class UI {
   private panelSignature = '';
   private mapBase?: HTMLCanvasElement;
   private mapSeed = '';
+  private mapTerrainRevision = -1;
+  private mapTerrain?: GameState['terrain'];
   private toastTimeout?: ReturnType<typeof setTimeout>;
   private renderSettings?: RenderSettings;
   private sessionMode = 'solo';
@@ -77,11 +83,11 @@ export class UI {
         <footer class="menu-footer"><span>${icon('compass')} EXPLORE. MAKE. SURVIVE.</span><button class="text-button" data-action="settings">${icon('settings')} Settings</button><a href="https://github.com/michaelcrosato/rbb" target="_blank" rel="noreferrer">Built in the open ↗</a></footer>
       </main>
       <div id="hud" hidden>
-        <div class="hud-top"><div class="location"><span class="hud-brand">rbb.</span><div><strong id="biome">Haven meadow</strong><span id="world-detail">DAY 01 · SOLO EXPEDITION</span></div></div><div class="compass"><span id="heading">N</span><div class="compass-ticks">┊ · ┊ · ┃ · ┊ · ┊</div><small id="bearing">000°</small></div><div class="hud-actions"><button id="crew-button" class="icon-button" title="Crew & invite" aria-label="Crew and invite" data-action="team" hidden></button><button class="icon-button" title="Map (M)" aria-label="Map" data-action="map">${icon('map')}</button><button class="icon-button" title="Pack (Tab)" aria-label="Pack and crafting" data-action="inventory">${icon('bag')}</button><button class="icon-button" title="Pause (Esc)" aria-label="Pause" data-action="pause">${icon('settings')}</button></div></div>
+        <div class="hud-top"><div class="location"><span class="hud-brand">rbb.</span><div><strong id="biome">Haven meadow</strong><span id="world-detail">DAY 01 · SOLO EXPEDITION</span></div></div><div class="compass"><span id="heading">N</span><div class="compass-ticks">┊ · ┊ · ┃ · ┊ · ┊</div><small id="bearing">000°</small></div><div class="hud-actions"><button class="icon-button" aria-label="Terrain tools" title="Terrain tools (T)" data-action="terrain">${icon('pickaxe')}</button><button id="crew-button" class="icon-button" title="Crew & invite" aria-label="Crew and invite" data-action="team" hidden></button><button class="icon-button" title="Map (M)" aria-label="Map" data-action="map">${icon('map')}</button><button class="icon-button" title="Pack (Tab)" aria-label="Pack and crafting" data-action="inventory">${icon('bag')}</button><button class="icon-button" title="Pause (Esc)" aria-label="Pause" data-action="pause">${icon('settings')}</button></div></div>
         <aside id="journal" class="journal"><div class="eyebrow">YOUR FIRST FOOTPRINTS <span>↗</span></div><strong id="objective-title"></strong><p id="objective-description"></p><div class="objective-track"><span id="objective-progress"></span></div><span id="objective-count" class="small muted"></span></aside>
         <div class="crosshair" aria-hidden="true"><span></span><span></span></div>
         <div id="target" class="target" hidden><span class="key">E</span><div><strong id="target-name"></strong><small id="target-action"></small></div></div>
-        <div id="oxygen" hidden></div><div id="build-hint" class="build-hint" hidden></div>
+        <div id="terrain-hint" class="terrain-hint" hidden></div><div id="oxygen" hidden></div><div id="build-hint" class="build-hint" hidden></div>
         <div class="hud-bottom"><div class="vitals">${(['health', 'hunger', 'thirst', 'stamina'] as const).map((stat, i) => `<div class="vital ${stat}" aria-label="${stat}">${icon(['heart', 'food', 'water', 'bolt'][i])}<div class="vital-track"><span id="${stat}-bar"></span></div><b id="${stat}-value">100</b></div>`).join('')}</div><div class="hotbar">${HOTBAR.map((item, i) => `<button class="slot" data-action="slot" data-value="${i}" aria-label="Equip ${ITEMS[item].name}"><kbd>${i + 1}</kbd>${icon(ITEMS[item].icon)}<small id="slot-count-${i}"></small><span class="slot-label">${ITEMS[item].name}</span></button>`).join('')}<button class="slot build-slot" data-action="build" aria-label="Building menu"><kbd>6</kbd>${icon('foundation')}<span class="slot-label">Build</span></button></div><div class="hud-status"><span id="save-indicator"><span class="status-dot"></span> World ready</span><span id="coordinates"></span></div></div>
         <div class="control-hints"><span><kbd>W A S D</kbd> move</span><span><kbd>E</kbd> gather</span><span><kbd>TAB</kbd> craft</span><span><kbd>B</kbd> build</span><span><kbd>F</kbd> use item</span></div>
         <div id="touch-controls"><div id="joystick" aria-label="Movement joystick"><span></span></div><div class="touch-actions"><button id="touch-sprint" class="touch-button" aria-label="Toggle sprint">${icon('bolt')}</button><button id="touch-dive" class="touch-button" aria-label="Hold to dive" hidden>↓</button><button id="touch-jump" class="touch-button" aria-label="Jump">↑</button><button class="touch-button touch-gather" data-action="interact" aria-label="Gather or place">${icon('hatchet')}<small>USE</small></button><button class="touch-button" data-action="consume" aria-label="Eat berries or use equipped item">${icon('berries')}</button><button class="touch-button" data-action="rotate" aria-label="Rotate building">↻</button></div></div>
@@ -317,13 +323,15 @@ export class UI {
         .join(
           '',
         )}</div><p class="muted small">Select an item to equip or use it. Hover for field notes.</p></div><div><div class="section-label">CRAFTING <span>${RECIPE_IDS.length} RECIPES</span></div><div class="recipe-list">${RECIPE_IDS.map((id) => `<article class="recipe"><div class="recipe-icon">${icon(ITEMS[id].icon)}</div><div class="recipe-details"><h3>${RECIPES[id].name}</h3><p>${RECIPES[id].description}</p><div class="costs">${this.cost(RECIPES[id].cost, player.inventory)}</div></div><button class="button small-button" data-action="craft" data-value="${id}" ${canAfford(player.inventory, RECIPES[id].cost) ? '' : 'disabled'}>Craft</button></article>`).join('')}</div></div></div>`;
+    } else if (panel === 'terrain' && player) {
+      body = terrainToolsMarkup(this.terrainLevel, player.inventory.dirt ?? 0);
     } else if (panel === 'build' && player) {
       body = `<h2 id="panel-title">Put down roots.</h2><p class="panel-description">Choose a piece, find a clear spot, then place it. Press R to rotate.</p><div class="building-grid">${BUILDING_IDS.map((id) => `<button class="building-card" data-action="select-build" data-value="${id}"><span class="building-icon">${icon(BUILDINGS[id].icon)}</span><h3>${BUILDINGS[id].name}</h3><p>${BUILDINGS[id].description}</p><div class="costs">${this.cost(BUILDINGS[id].cost, player.inventory)}</div><span class="card-footer">${player.dev.freeBuild || canAfford(player.inventory, BUILDINGS[id].cost) ? 'SELECT & PLACE' : 'PREVIEW · NEEDS MATERIALS'} ${icon('arrow')}</span></button>`).join('')}</div>`;
     } else if (panel === 'map') {
       body =
         '<h2 id="panel-title">Know your island.</h2><p class="panel-description">Your position, crew, freshwater, camps, and the way back.</p><div class="map-wrap"><canvas id="island-map" width="512" height="512" aria-label="Island map with your location, crew, springs, buildings and lost packs"></canvas><span class="map-north">N ↑</span></div><div class="map-legend"><span>▲ You</span><span>● Crew</span><span>◆ Camp</span><span>● Freshwater</span><span>✚ Lost pack</span></div>';
     } else if (panel === 'pause') {
-      body = `<h2 id="panel-title">Take a breath.</h2><p class="panel-description">${this.sessionMode === 'solo' ? 'Your solo world is paused. Your progress is saved automatically.' : 'The shared world keeps moving. Find a safe place before stepping away.'}</p><div class="pause-buttons"><button class="button primary" data-action="resume">Return to the wild ${icon('arrow')}</button><button class="button secondary" data-action="inventory">Pack & crafting ${icon('bag')}</button><button class="button secondary" data-action="settings">Settings ${icon('settings')}</button><button class="button secondary" data-action="developer">Developer tools <kbd>F2</kbd></button><button class="button secondary" data-action="guide">Field guide ${icon('map')}</button>${this.sessionMode === 'solo' ? '<button class="button secondary" data-action="export">Export save ↗</button>' : '<button class="button secondary" data-action="team">Crew & invite ↗</button>'}<button class="text-button" data-action="menu">${this.sessionMode === 'solo' ? 'Save & return to menu' : 'Leave world & return to menu'}</button></div>`;
+      body = `<h2 id="panel-title">Take a breath.</h2><p class="panel-description">${this.sessionMode === 'solo' ? 'Your solo world is paused. Your progress is saved automatically.' : 'The shared world keeps moving. Find a safe place before stepping away.'}</p><div class="pause-buttons"><button class="button primary" data-action="resume">Return to the wild ${icon('arrow')}</button><button class="button secondary" data-action="inventory">Pack & crafting ${icon('bag')}</button><button class="button secondary" data-action="terrain">Terrain tools <kbd>T</kbd></button><button class="button secondary" data-action="settings">Settings ${icon('settings')}</button><button class="button secondary" data-action="developer">Developer tools <kbd>F2</kbd></button><button class="button secondary" data-action="guide">Field guide ${icon('map')}</button>${this.sessionMode === 'solo' ? '<button class="button secondary" data-action="export">Export save ↗</button>' : '<button class="button secondary" data-action="team">Crew & invite ↗</button>'}<button class="text-button" data-action="menu">${this.sessionMode === 'solo' ? 'Save & return to menu' : 'Leave world & return to menu'}</button></div>`;
     } else if (panel === 'settings') {
       const s = this.renderSettings!;
       body = `<h2 id="panel-title">Your kind of frontier.</h2><p class="panel-description">Tune the experience to your device.</p><div class="settings-form"><label for="quality">Graphics quality <small>Auto adjusts resolution when frames slow down.</small></label><select id="quality"><option value="auto">Auto · recommended</option><option value="high">High · desktop</option><option value="balanced">Balanced</option><option value="mobile">Mobile · efficient</option><option value="low">Low · older hardware</option></select><label for="fov">Field of view <output id="fov-output">${s.fov}°</output></label><input id="fov" type="range" min="55" max="100" value="${s.fov}"/><label for="sensitivity">Look sensitivity <output id="sensitivity-output">${s.sensitivity.toFixed(1)}</output></label><input id="sensitivity" type="range" min="0.3" max="2.5" step="0.1" value="${s.sensitivity}"/><label for="volume">Sound effects <output id="volume-output">${Math.round(s.volume * 100)}%</output></label><input id="volume" type="range" min="0" max="1" step="0.05" value="${s.volume}"/><label class="checkbox-label"><input id="show-stats" type="checkbox" ${s.showStats ? 'checked' : ''}/> Show performance overlay</label><details class="graphics-options"><summary>Rendering effects</summary>${graphicsMarkup(s.graphics)}<button class="button secondary" id="enhanced-effects" type="button">Enable enhanced effects</button></details><button class="button primary" data-action="apply-settings">Apply settings ${icon('check')}</button></div>`;
@@ -342,7 +350,7 @@ export class UI {
         icon('arrow') +
         '</button><button class="text-button" data-action="close">Keep my current expedition</button></div>';
     } else {
-      body = `<h2 id="panel-title">Leave your first footprints.</h2><p class="panel-description">A few things to know before the island becomes home.</p><div class="guide-grid"><article><span>01</span><h3>Explore & gather</h3><p>WASD to walk, Shift to sprint, Space to jump. In water, hold C to dive and release to surface; watch your air. Move close, aim at a resource, then press E or hold the left mouse button. On touch, use the left stick and drag the world to look.</p></article><article><span>02</span><h3>Make your tools</h3><p>Tab opens your pack. A hatchet gathers wood faster; a pickaxe helps with stone. Collect wild flax for fiber. Use 1–5 to change tools, and F to eat or heal.</p></article><article><span>03</span><h3>Make camp</h3><p>B opens the building menu. A green preview marks a valid spot. E or left click places it. R rotates; B cancels. Walls snap to foundations. A bedroll sets your respawn point.</p></article><article><span>04</span><h3>Stay a little longer</h3><p>Eat berries and drink at the stone-ringed freshwater spring. Boars defend their territory. Cook meat beside a campfire, and rest nearby to heal. M opens your map. Esc opens the pause menu.</p></article></div><div class="guide-footer"><span class="muted small">Solo saves every 10 seconds and when you pause. Online worlds keep running while you look through your pack.</span><button class="button secondary" data-action="import">Import solo save ↗</button></div>`;
+      body = `<h2 id="panel-title">Leave your first footprints.</h2><p class="panel-description">A few things to know before the island becomes home.</p><div class="guide-grid"><article><span>01</span><h3>Explore & gather</h3><p>WASD to walk, Shift to sprint, Space to jump. In water, hold C to dive and release to surface; watch your air. Move close, aim at a resource, then press E or hold the left mouse button. On touch, use the left stick and drag the world to look.</p></article><article><span>02</span><h3>Make your tools</h3><p>Tab opens your pack. A hatchet gathers wood faster; a pickaxe helps with stone. Collect wild flax for fiber. Use 1–5 to change tools, and F to eat or heal.</p></article><article><span>03</span><h3>Shape terrain & make camp</h3><p>T opens terrain tools. Use a pickaxe to dig or flatten, and deposit excavated dirt to build ground up. Aim into a hillside to excavate a cave. B opens the building menu. A green preview marks a valid spot. E or left click places it. R rotates; B cancels. Walls snap to foundations. A bedroll sets your respawn point.</p></article><article><span>04</span><h3>Stay a little longer</h3><p>Eat berries and drink at the stone-ringed freshwater spring. Boars defend their territory. Cook meat beside a campfire, and rest nearby to heal. M opens your map. Esc opens the pause menu.</p></article></div><div class="guide-footer"><span class="muted small">Solo saves every 10 seconds and when you pause. Online worlds keep running while you look through your pack.</span><button class="button secondary" data-action="import">Import solo save ↗</button></div>`;
     }
     this.modalBody.innerHTML = body;
     this.modal
@@ -387,18 +395,26 @@ export class UI {
     const canvas = this.modal.querySelector<HTMLCanvasElement>('#island-map');
     if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
-    if (!this.mapBase || this.mapSeed !== world.seed) {
+    if (
+      !this.mapBase ||
+      this.mapSeed !== world.seed ||
+      this.mapTerrain !== state.terrain ||
+      this.mapTerrainRevision !== state.terrain.revision
+    ) {
       this.mapSeed = world.seed;
+      this.mapTerrain = state.terrain;
+      this.mapTerrainRevision = state.terrain.revision;
       this.mapBase = document.createElement('canvas');
       this.mapBase.width = 256;
       this.mapBase.height = 256;
       const base = this.mapBase.getContext('2d')!;
       for (let x = 0; x < 256; x++)
         for (let z = 0; z < 256; z++) {
-          const h = terrainHeight(
+          const h = terrainFloor(
+            state.terrain,
+            world,
             (x / 256) * WORLD_SIZE - 320,
             (z / 256) * WORLD_SIZE - 320,
-            world.hash,
           );
           base.fillStyle =
             h < 0

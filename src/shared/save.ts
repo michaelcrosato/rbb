@@ -16,8 +16,9 @@ import type { GameState } from './state';
 import { WORLD_HALF, WORLD_VERSION, generateWorld } from './world';
 import { createEnvironment, DEFAULT_TUNING, environmentSchema, tuningSchema } from './environment';
 import { populateWildlife, MAX_ANIMALS } from './wildlife';
+import { emptyTerrain, terrainSchema, TERRAIN } from './terrain';
 
-export const MAX_SAVE_BYTES = 2_000_000;
+export const MAX_SAVE_BYTES = 16_000_000;
 // Bounds follow the content registry so a balance change cannot silently invalidate saves.
 const maxResourceHealth = Math.max(...Object.values(RESOURCE_TYPES).map((r) => r.health));
 const maxAnimalHealth = Math.max(...Object.values(WILDLIFE).map((w) => w.health));
@@ -31,7 +32,7 @@ const stat = finite.min(0).max(100);
 const position = z
   .object({
     x: finite.min(-WORLD_HALF).max(WORLD_HALF),
-    y: finite.min(-20).max(160),
+    y: finite.min(TERRAIN.minY).max(160),
     z: finite.min(-WORLD_HALF).max(WORLD_HALF),
   })
   .strict();
@@ -73,7 +74,8 @@ const playerSchema = z
   .strict();
 export const stateSchema = z
   .object({
-    version: z.literal(2),
+    version: z.literal(3),
+    terrain: terrainSchema,
     environment: environmentSchema,
     tuning: tuningSchema,
     sandbox: z.boolean(),
@@ -149,7 +151,11 @@ export const stateSchema = z
   })
   .strict();
 
-const legacyStateSchema = stateSchema
+const v2StateSchema = stateSchema
+  .omit({ terrain: true })
+  .extend({ version: z.literal(2) })
+  .strict();
+const legacyStateSchema = v2StateSchema
   .omit({ environment: true, tuning: true, sandbox: true })
   .extend({
     version: z.literal(1),
@@ -172,7 +178,7 @@ const legacyStateSchema = stateSchema
 
 export interface SaveFile {
   format: 'rbb-save';
-  version: 2;
+  version: 3;
   savedAt: string;
   playerId: string;
   state: GameState;
@@ -180,7 +186,7 @@ export interface SaveFile {
 const saveSchema = z
   .object({
     format: z.literal('rbb-save'),
-    version: z.union([z.literal(1), z.literal(2)]),
+    version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
     savedAt: z.iso.datetime(),
     playerId: id,
     state: z.unknown(),
@@ -213,7 +219,14 @@ export function parseState(value: unknown): GameState {
         ],
       }
     : value;
-  const state = stateSchema.parse(migrated);
+  const v2 =
+    typeof migrated === 'object' &&
+    migrated !== null &&
+    'version' in migrated &&
+    migrated.version === 2
+      ? v2StateSchema.parse(migrated)
+      : null;
+  const state = stateSchema.parse(v2 ? { ...v2, version: 3, terrain: emptyTerrain() } : migrated);
   // Loading must never resume stale held keys, especially across reconnects or tab suspension.
   for (const p of Object.values(state.players)) p.input = idleInput();
   const ids = [
@@ -229,7 +242,7 @@ export function parseState(value: unknown): GameState {
 
 export function parseSave(text: string): SaveFile {
   if (new TextEncoder().encode(text).length > MAX_SAVE_BYTES)
-    throw new Error('Save is larger than 2 MB.');
+    throw new Error('Save is larger than 16 MB.');
   const parsed = saveSchema.safeParse(JSON.parse(text));
   if (!parsed.success)
     throw new Error(
@@ -245,13 +258,13 @@ export function parseSave(text: string): SaveFile {
     throw new Error('Save envelope and state versions disagree.');
   const state = parseState(rawState);
   if (!state.players[parsed.data.playerId]) throw new Error('Save has no local player.');
-  return { ...parsed.data, version: 2, state };
+  return { ...parsed.data, version: 3, state };
 }
 
 export function encodeSave(state: GameState, playerId: string): string {
   return JSON.stringify({
     format: 'rbb-save',
-    version: 2,
+    version: 3,
     // Envelope metadata only; the simulation never reads the wall clock.
     // eslint-disable-next-line no-restricted-syntax
     savedAt: new Date().toISOString(),

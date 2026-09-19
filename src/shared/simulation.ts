@@ -10,7 +10,8 @@ import {
 import { buildCandidate, validateBuild } from './building';
 import { transact } from './inventory';
 import { clamp, distance2 } from './math';
-import { lineOfSight, stepPlayer } from './physics';
+import { lineOfSight, stepPlayer, groundHeight } from './physics';
+import { playerEarthwork, resourceSupported, safeTerrainSpawn } from './earthworks';
 import type { Command } from './protocol';
 import { createPlayer, idleInput, resourceHealth, resourceIsActive } from './state';
 import type { GameEvent, GameState, PlayerState, Result } from './state';
@@ -28,7 +29,12 @@ export class Simulation {
   ) {}
 
   addPlayer(id: string, name: string): PlayerState {
-    return (this.state.players[id] ??= createPlayer(id, name, this.world));
+    if (!this.state.players[id]) {
+      const p = createPlayer(id, name, this.world);
+      p.position = safeTerrainSpawn(this.state, this.world, p.position);
+      this.state.players[id] = p;
+    }
+    return this.state.players[id];
   }
 
   drainEvents(): GameEvent[] {
@@ -57,7 +63,7 @@ export class Simulation {
     }
     if (command.type === 'respawn') {
       if (p.health > 0) return fail('You are already alive.');
-      p.position = { ...p.respawn };
+      p.position = safeTerrainSpawn(this.state, this.world, p.respawn);
       p.velocityY = 0;
       p.health = 100;
       p.hunger = 80;
@@ -73,6 +79,10 @@ export class Simulation {
     }
     if (p.health <= 0) return fail('Respawn to continue.');
     if (command.type === 'move') {
+      // Turning is immediate intent. A following action on the same socket must
+      // use this look direction even when no movement tick occurred between them.
+      p.yaw = command.input.yaw;
+      p.pitch = command.input.pitch;
       p.input = {
         ...command.input,
         jump: p.dev.flight ? command.input.jump : p.input.jump || command.input.jump,
@@ -86,6 +96,10 @@ export class Simulation {
     }
     if (p.cooldown > 0 && (command.type === 'interact' || command.type === 'build'))
       return fail('Wait a moment.');
+    if (command.type === 'terrain') {
+      const result = playerEarthwork(this.state, this.world, p, command.request);
+      return result.ok ? this.event('gather', p, result.message) : result;
+    }
     if (command.type === 'consume') {
       const effect = CONSUMABLES[command.item];
       if (!effect) return fail('You cannot use this item.');
@@ -102,7 +116,11 @@ export class Simulation {
       if (
         'station' in recipe &&
         !this.state.buildings.some(
-          (b) => b.kind === recipe.station && distance2(p.position, b) <= 5,
+          (b) =>
+            b.kind === recipe.station &&
+            distance2(p.position, b) <= 5 &&
+            Math.abs(p.position.y - b.y) < 3 &&
+            lineOfSight(this.state, p, b.x, b.y + 0.5, b.z, this.world),
         )
       )
         return fail('You need a campfire within 5 metres.');
@@ -122,6 +140,7 @@ export class Simulation {
         command.x,
         command.z,
         command.rotation,
+        p.position.y + 0.65,
       );
       const result = validateBuild(this.state, this.world, p, b);
       if (!result.ok) return result;
@@ -153,7 +172,10 @@ export class Simulation {
       ((target.x - p.position.x) * -Math.sin(p.yaw) +
         (target.z - p.position.z) * -Math.cos(p.yaw)) /
       Math.max(0.01, dist);
-    return (dist < 1 || dot > 0.25) && lineOfSight(this.state, p, target.x, target.y + 1, target.z);
+    return (
+      (dist < 1 || dot > 0.25) &&
+      lineOfSight(this.state, p, target.x, target.y + 1, target.z, this.world)
+    );
   }
 
   private interact(p: PlayerState, id: string): Result {
@@ -250,7 +272,13 @@ export class Simulation {
       else if (
         p.hunger > 30 &&
         p.thirst > 30 &&
-        this.state.buildings.some((b) => b.kind === 'campfire' && distance2(p.position, b) < 5)
+        this.state.buildings.some(
+          (b) =>
+            b.kind === 'campfire' &&
+            distance2(p.position, b) < 5 &&
+            Math.abs(p.position.y - b.y) < 3 &&
+            lineOfSight(this.state, p, b.x, b.y + 0.5, b.z, this.world),
+        )
       )
         p.health = Math.min(100, p.health + dt * 0.8);
       p.oxygen = clamp(p.oxygen + (p.position.y + 1.65 < -0.12 ? -7 : 25) * dt, 0, 100);
@@ -270,6 +298,7 @@ export class Simulation {
           const definition = this.world.resourceMap.get(id);
           if (
             definition &&
+            resourceSupported(this.state, this.world, definition) &&
             !this.state.buildings.some((b) => distance2(b, definition) < 4) &&
             !Object.values(this.state.players).some((p) => distance2(p.position, definition) < 3)
           )
@@ -277,6 +306,8 @@ export class Simulation {
         }
       }
       this.state.bags = this.state.bags.filter((b) => b.expiresAt > this.state.time);
+      for (const bag of this.state.bags)
+        bag.y = Math.min(bag.y, groundHeight(this.state, this.world, bag.x, bag.z, bag.y + 0.2));
     }
   }
 

@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { aimAt, diagnostics, gather, startSolo, walkTo } from './helpers';
 import type { Diagnostics } from './helpers';
 import { startWorldServer } from '../../server/app';
+import { testOrigins } from './server-options';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -88,7 +89,13 @@ test('menu, settings, pause, movement and jump work without browser errors', asy
 
 test('online survivor automatically reconnects after a world process restart', async ({ page }) => {
   const dataDir = await mkdtemp(join(tmpdir(), 'rbb-browser-restart-'));
-  let server = await startWorldServer({ port: 0, host: '127.0.0.1', dataDir, log: () => {} });
+  let server = await startWorldServer({
+    allowedOrigins: testOrigins,
+    port: 0,
+    host: '127.0.0.1',
+    dataDir,
+    log: () => {},
+  });
   const port = server.port;
   try {
     await page.goto('/');
@@ -99,7 +106,13 @@ test('online survivor automatically reconnects after a world process restart', a
     const id = (await diagnostics(page)).player.id;
     await server.close();
     await expect(page.locator('#save-indicator')).toContainText(/reconnect/i);
-    server = await startWorldServer({ port, host: '127.0.0.1', dataDir, log: () => {} });
+    server = await startWorldServer({
+      allowedOrigins: testOrigins,
+      port,
+      host: '127.0.0.1',
+      dataDir,
+      log: () => {},
+    });
     await expect(page.locator('#save-indicator')).toContainText('Connected');
     expect((await diagnostics(page)).player.id).toBe(id);
   } finally {

@@ -4,6 +4,7 @@ import type { Environment, Tuning } from '../../shared/environment';
 import { weatherValues } from '../../shared/environment';
 import { terrainHeight } from '../../shared/world';
 import type { WorldDefinition } from '../../shared/world';
+import type { TerrainUpdate } from '../../shared/terrain';
 import type { Atmosphere } from './atmosphere';
 
 export class SurfaceEffects {
@@ -85,7 +86,8 @@ export class Ocean {
   readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   private heightMap?: THREE.DataTexture;
   private reflector?: Reflector;
-  private worldHash = 0;
+  private height = (x: number, z: number): number => terrainHeight(x, z, 0);
+  private readonly changedPixels = new Set<number>();
   private segments = 192;
   constructor(scene: THREE.Scene) {
     this.mesh = new THREE.Mesh(
@@ -142,8 +144,12 @@ export class Ocean {
     this.mesh.userData.rbbOcean = true;
     scene.add(this.mesh);
   }
-  setWorld(world: WorldDefinition): void {
-    this.worldHash = world.hash;
+  setWorld(
+    world: WorldDefinition,
+    height = (x: number, z: number) => terrainHeight(x, z, world.hash),
+  ): void {
+    this.height = height;
+    this.changedPixels.clear();
     this.heightMap?.dispose();
     const size = 256,
       data = new Uint8Array(size * size);
@@ -151,9 +157,7 @@ export class Ocean {
       for (let x = 0; x < size; x++)
         data[z * size + x] = Math.round(
           THREE.MathUtils.clamp(
-            (terrainHeight((x / (size - 1)) * 640 - 320, (z / (size - 1)) * 640 - 320, world.hash) +
-              40) /
-              120,
+            (this.height((x / (size - 1)) * 640 - 320, (z / (size - 1)) * 640 - 320) + 40) / 120,
             0,
             1,
           ) * 255,
@@ -162,6 +166,34 @@ export class Ocean {
     this.heightMap.minFilter = this.heightMap.magFilter = THREE.LinearFilter;
     this.heightMap.needsUpdate = true;
     this.mesh.material.uniforms.heightMap.value = this.heightMap;
+  }
+  updateTerrain(update: TerrainUpdate): void {
+    if (!this.heightMap) return;
+    const dirty = update.base === -1 ? new Set(this.changedPixels) : new Set<number>();
+    for (const key of Object.keys(update.samples)) {
+      const [x, , z] = key.split(',').map(Number);
+      const px = Math.round(((x + 320) / 640) * 255),
+        pz = Math.round(((z + 320) / 640) * 255);
+      for (let dx = -1; dx <= 1; dx++)
+        for (let dz = -1; dz <= 1; dz++) {
+          if (px + dx < 0 || px + dx > 255 || pz + dz < 0 || pz + dz > 255) continue;
+          dirty.add((pz + dz) * 256 + px + dx);
+        }
+    }
+    const data = this.heightMap.image.data as Uint8Array;
+    for (const i of dirty) {
+      data[i] = Math.round(
+        THREE.MathUtils.clamp(
+          (this.height(((i % 256) / 255) * 640 - 320, (Math.floor(i / 256) / 255) * 640 - 320) +
+            40) /
+            120,
+          0,
+          1,
+        ) * 255,
+      );
+      this.changedPixels.add(i);
+    }
+    if (dirty.size) this.heightMap.needsUpdate = true;
   }
   setQuality(quality: string): void {
     const segments =
@@ -212,7 +244,7 @@ export class Ocean {
       !this.reflector ||
       camera.position.y < 0.1 ||
       camera.position.y > 70 ||
-      terrainHeight(camera.position.x, camera.position.z, this.worldHash) > 12
+      this.height(camera.position.x, camera.position.z) > 12
     )
       return;
     // Reflector freezes shadow updates. The first reflection must wait until the main
