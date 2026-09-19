@@ -3,16 +3,13 @@ import {
   BALANCE,
   BUILDINGS,
   BUILDING_IDS,
-  isConsumable,
   ITEMS,
-  ITEM_IDS,
-  MAX_WEIGHT,
   MILESTONES,
-  RECIPES,
-  RECIPE_IDS,
+  SITE_TYPES,
+  WEAPONS,
 } from '../../shared/content';
 import type { BuildingKind, Inventory, ItemId } from '../../shared/content';
-import { canAfford, inventoryWeight } from '../../shared/inventory';
+import { canAfford } from '../../shared/inventory';
 import type { GameState, PlayerState } from '../../shared/state';
 import { biomeAt, DEFAULT_SEED, WORLD_SIZE } from '../../shared/world';
 import type { WorldDefinition } from '../../shared/world';
@@ -21,11 +18,17 @@ import type { RenderSettings, Target } from '../render/renderer';
 import { escapeHtml as esc, icon } from './icons';
 import { graphicsMarkup } from './developer';
 import { terrainToolsMarkup } from '../terrain-tools';
+import { itemDetailsMarkup, suppliesMarkup } from './supplies';
+import { packMarkup } from './pack';
+import { structureMarkup } from './structures';
 
 export type Panel =
   | 'terrain'
   | 'developer'
   | 'inventory'
+  | 'item-details'
+  | 'supplies'
+  | 'structure'
   | 'build'
   | 'map'
   | 'pause'
@@ -44,6 +47,13 @@ export class UI {
   readonly modal: HTMLElement;
   panel: Panel | null = null;
   terrainLevel = 8;
+  selectedItem: ItemId | null = null;
+  suppliesId: string | null = null;
+  structureId: string | null = null;
+  craftCategory = 'All';
+  trackedSiteId: string | null = null;
+  private currentState?: GameState;
+  private currentWorld?: WorldDefinition;
   joinDefaults = {
     serverUrl: import.meta.env.VITE_SERVER_URL || 'ws://localhost:8787',
     name: 'Wanderer',
@@ -89,7 +99,8 @@ export class UI {
         <div id="target" class="target" hidden><span class="key">E</span><div><strong id="target-name"></strong><small id="target-action"></small></div></div>
         <div id="terrain-hint" class="terrain-hint" hidden></div><div id="oxygen" hidden></div><div id="build-hint" class="build-hint" hidden></div>
         <div class="hud-bottom"><div class="vitals">${(['health', 'hunger', 'thirst', 'stamina'] as const).map((stat, i) => `<div class="vital ${stat}" aria-label="${stat}">${icon(['heart', 'food', 'water', 'bolt'][i])}<div class="vital-track"><span id="${stat}-bar"></span></div><b id="${stat}-value">100</b></div>`).join('')}</div><div class="hotbar">${HOTBAR.map((item, i) => `<button class="slot" data-action="slot" data-value="${i}" aria-label="Equip ${ITEMS[item].name}"><kbd>${i + 1}</kbd>${icon(ITEMS[item].icon)}<small id="slot-count-${i}"></small><span class="slot-label">${ITEMS[item].name}</span></button>`).join('')}<button class="slot build-slot" data-action="build" aria-label="Building menu"><kbd>6</kbd>${icon('foundation')}<span class="slot-label">Build</span></button></div><div class="hud-status"><span id="save-indicator"><span class="status-dot"></span> World ready</span><span id="coordinates"></span></div></div>
-        <div class="control-hints"><span><kbd>W A S D</kbd> move</span><span><kbd>E</kbd> gather</span><span><kbd>TAB</kbd> craft</span><span><kbd>B</kbd> build</span><span><kbd>F</kbd> use item</span></div>
+        <div id="weapon-status" class="weapon-status"></div><div id="destination" class="destination"></div>
+        <div class="control-hints"><span><kbd>W A S D</kbd> move</span><span><kbd>E</kbd> use / attack</span><span><kbd>TAB</kbd> craft</span><span><kbd>B</kbd> build</span><span><kbd>F</kbd> use item</span></div>
         <div id="touch-controls"><div id="joystick" aria-label="Movement joystick"><span></span></div><div class="touch-actions"><button id="touch-sprint" class="touch-button" aria-label="Toggle sprint">${icon('bolt')}</button><button id="touch-dive" class="touch-button" aria-label="Hold to dive" hidden>↓</button><button id="touch-jump" class="touch-button" aria-label="Jump">↑</button><button class="touch-button touch-gather" data-action="interact" aria-label="Gather or place">${icon('hatchet')}<small>USE</small></button><button class="touch-button" data-action="consume" aria-label="Eat berries or use equipped item">${icon('berries')}</button><button class="touch-button" data-action="rotate" aria-label="Rotate building">↻</button></div></div>
       </div>
       <div id="modal" class="modal-backdrop" hidden><section class="panel" role="dialog" aria-modal="true" aria-labelledby="panel-title"><div class="panel-top"><span class="eyebrow">RBB / FIELD NOTES</span><button class="icon-button" data-action="close" aria-label="Close panel">${icon('close')}</button></div><div id="panel-body"></div></section></div>
@@ -103,11 +114,40 @@ export class UI {
     this.hud = root.querySelector('#hud')!;
     this.modal = root.querySelector('#modal')!;
     this.modalBody = root.querySelector('#panel-body')!;
+    const touchActionSelector =
+      '.hud-actions [data-action], .hotbar [data-action], .touch-actions [data-action]';
     root.addEventListener('click', (e) => {
       const button = (e.target as HTMLElement).closest<HTMLElement>('[data-action]');
+      // Touch HUD actions run on pointer release. Avoid a second action when the
+      // browser also synthesizes a click; mouse and keyboard keep native clicks.
+      if (e.pointerType === 'touch' && button?.matches(touchActionSelector)) return;
       if (button && !(button as HTMLButtonElement).disabled)
         this.onAction(button.dataset.action!, button.dataset.value);
     });
+    // A look gesture can suppress the next compatibility click on mobile. Use
+    // real pointer events for these game controls, with cancel/drag-out handling.
+    const touchPresses = new Map<number, HTMLElement>();
+    root.addEventListener('pointerdown', (event) => {
+      const button = (event.target as Element).closest<HTMLElement>(touchActionSelector);
+      if (event.pointerType !== 'touch' || !button) return;
+      event.preventDefault();
+      touchPresses.set(event.pointerId, button);
+      button.setPointerCapture(event.pointerId);
+    });
+    root.addEventListener('pointerup', (event) => {
+      const button = touchPresses.get(event.pointerId);
+      touchPresses.delete(event.pointerId);
+      if (!button || (button as HTMLButtonElement).disabled) return;
+      const bounds = button.getBoundingClientRect();
+      if (
+        event.clientX >= bounds.left &&
+        event.clientX <= bounds.right &&
+        event.clientY >= bounds.top &&
+        event.clientY <= bounds.bottom
+      )
+        this.onAction(button.dataset.action!, button.dataset.value);
+    });
+    root.addEventListener('pointercancel', (event) => touchPresses.delete(event.pointerId));
     this.modal.addEventListener('keydown', (e) => {
       if (e.key !== 'Tab') return;
       const nodes = [
@@ -172,6 +212,8 @@ export class UI {
     mode: string,
     connectionStatus = '',
   ): void {
+    this.currentState = state;
+    this.currentWorld = world;
     this.sessionMode = mode;
     const crew = this.root.querySelector<HTMLButtonElement>('#crew-button')!;
     crew.hidden = mode !== 'online';
@@ -212,7 +254,14 @@ export class UI {
       this.root.querySelector(`#${stat}-value`)!.textContent = String(Math.ceil(player[stat]));
       this.root.querySelector<HTMLElement>(`#${stat}-bar`)!.style.width = `${player[stat]}%`;
     }
-    HOTBAR.forEach((item, i) => {
+    player.quickSlots.forEach((item, i) => {
+      const slot = this.root.querySelector(`#slot-count-${i}`)!.closest<HTMLElement>('.slot')!;
+      if (slot.dataset.item !== item) {
+        slot.dataset.item = item;
+        slot.setAttribute('aria-label', `Equip ${ITEMS[item].name}`);
+        slot.querySelector('.icon')!.outerHTML = icon(ITEMS[item].icon);
+        slot.querySelector('.slot-label')!.textContent = ITEMS[item].name;
+      }
       this.root.querySelector(`#slot-count-${i}`)!.textContent = player.inventory[item]
         ? String(player.inventory[item])
         : '—';
@@ -225,6 +274,23 @@ export class UI {
         .closest('.slot')!
         .classList.toggle('empty', !player.inventory[item]);
     });
+    const weapon = WEAPONS[player.equipped];
+    this.root.querySelector<HTMLElement>('#weapon-status')!.textContent =
+      player.inventory[player.equipped] && weapon?.ammo
+        ? `${ITEMS[player.equipped].name} · ${player.inventory[weapon.ammo] ?? 0} ${ITEMS[weapon.ammo].name.toLowerCase()}`
+        : '';
+    const destination = world.sites.find(
+      (site) => site.id === this.trackedSiteId && !state.sites[site.id]?.disabled,
+    );
+    const direction = destination
+      ? ((Math.atan2(destination.x - player.position.x, player.position.z - destination.z) * 180) /
+          Math.PI +
+          360) %
+        360
+      : 0;
+    this.root.querySelector<HTMLElement>('#destination')!.textContent = destination
+      ? `${SITE_TYPES[destination.kind].name} · ${Math.round(Math.hypot(destination.x - player.position.x, destination.z - player.position.z))} m · ${['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(direction / 45) % 8]}`
+      : '';
     const objective = MILESTONES.find((m) => player.milestones[m.id] < m.target);
     this.root.querySelector('#objective-title')!.textContent =
       objective?.label ?? 'The island is yours to explore';
@@ -240,14 +306,35 @@ export class UI {
       this.root.querySelector('#target-name')!.textContent = target.name;
       this.root.querySelector('#target-action')!.textContent = target.action;
     }
-    if (['inventory', 'build'].includes(this.panel ?? '')) {
-      const signature = JSON.stringify(player.inventory);
+    if (
+      ['inventory', 'build', 'item-details', 'supplies', 'structure'].includes(this.panel ?? '')
+    ) {
+      const signature = JSON.stringify([
+        player.inventory,
+        player.worn,
+        player.quickSlots,
+        state.buildings,
+        this.panel === 'supplies' ? state.bags.find((bag) => bag.id === this.suppliesId) : null,
+        this.panel === 'supplies' && this.suppliesId ? state.sites[this.suppliesId] : null,
+      ]);
       if (signature !== this.panelSignature) {
         this.panelSignature = signature;
         const active = document.activeElement as HTMLElement;
         const action = active?.dataset.action,
           value = active?.dataset.value;
+        const focusedId = active?.id;
+        const quantities = [
+          ...this.modal.querySelectorAll<HTMLInputElement>('[data-preserve]'),
+        ].map((input) => [input.id, input.value] as const);
         this.renderPanel(this.panel!, player);
+        for (const [id, value] of quantities) {
+          const input = this.modal.querySelector<HTMLInputElement>(`#${CSS.escape(id)}`);
+          if (input)
+            input.value = String(
+              Math.max(Number(input.min), Math.min(Number(input.max), Number(value))),
+            );
+        }
+        if (focusedId) this.modal.querySelector<HTMLElement>(`#${CSS.escape(focusedId)}`)?.focus();
         if (action)
           this.modal
             .querySelector<HTMLElement>(
@@ -259,7 +346,15 @@ export class UI {
     if (this.panel === 'map') this.drawMap(world, state, player);
   }
 
-  showPanel(panel: Panel, player?: PlayerState, settings?: RenderSettings): void {
+  showPanel(
+    panel: Panel,
+    player?: PlayerState,
+    settings?: RenderSettings,
+    state?: GameState,
+    world?: WorldDefinition,
+  ): void {
+    this.currentState = state ?? this.currentState;
+    this.currentWorld = world ?? this.currentWorld;
     if (!this.panel) this.previousFocus = document.activeElement as HTMLElement;
     this.panel = panel;
     this.panelSignature = '';
@@ -313,23 +408,35 @@ export class UI {
     let body: string;
     if (panel === 'developer') body = '<div id="developer-loading">Developer tools</div>';
     else if (panel === 'inventory' && player) {
-      body = `<h2 id="panel-title">A life, in your pack.</h2><p class="panel-description">Gather what you need. Make something useful.</p><div class="pack-layout"><div><div class="section-label">YOUR SUPPLIES <span>${inventoryWeight(player.inventory).toFixed(1)} / ${MAX_WEIGHT} kg</span></div><div class="inventory-grid">${ITEM_IDS.filter(
-        (id) => player.inventory[id],
-      )
-        .map(
-          (id) =>
-            `<button class="inventory-item" data-action="item" data-value="${id}" title="${ITEMS[id].description}"><span style="color:${ITEMS[id].color}">${icon(ITEMS[id].icon)}</span><strong>${ITEMS[id].name}</strong><b>×${player.inventory[id]}</b><small>${isConsumable(id) ? 'Click to use' : 'Click to equip'}</small></button>`,
-        )
-        .join(
-          '',
-        )}</div><p class="muted small">Select an item to equip or use it. Hover for field notes.</p></div><div><div class="section-label">CRAFTING <span>${RECIPE_IDS.length} RECIPES</span></div><div class="recipe-list">${RECIPE_IDS.map((id) => `<article class="recipe"><div class="recipe-icon">${icon(ITEMS[id].icon)}</div><div class="recipe-details"><h3>${RECIPES[id].name}</h3><p>${RECIPES[id].description}</p><div class="costs">${this.cost(RECIPES[id].cost, player.inventory)}</div></div><button class="button small-button" data-action="craft" data-value="${id}" ${canAfford(player.inventory, RECIPES[id].cost) ? '' : 'disabled'}>Craft</button></article>`).join('')}</div></div></div>`;
+      body = packMarkup(player, this.currentState!, this.currentWorld!, this.craftCategory);
+    } else if (panel === 'item-details' && player) {
+      body = itemDetailsMarkup(player, this.selectedItem);
+    } else if (panel === 'supplies' && player) {
+      const site = this.currentWorld?.sites.find((site) => site.id === this.suppliesId);
+      body = site
+        ? suppliesMarkup(
+            player,
+            this.currentState?.sites[site.id],
+            SITE_TYPES[site.kind].name,
+            `${SITE_TYPES[site.kind].description} Shared salvage; empty crates restock after ${SITE_TYPES[site.kind].restock / 60} world minutes from the first collection.`,
+          )
+        : suppliesMarkup(
+            player,
+            this.currentState?.bags.find((bag) => bag.id === this.suppliesId),
+          );
+    } else if (panel === 'structure' && player) {
+      body = structureMarkup(
+        player,
+        this.currentState?.buildings.find((b) => b.id === this.structureId),
+        this.currentState!,
+      );
     } else if (panel === 'terrain' && player) {
       body = terrainToolsMarkup(this.terrainLevel, player.inventory.dirt ?? 0);
     } else if (panel === 'build' && player) {
       body = `<h2 id="panel-title">Put down roots.</h2><p class="panel-description">Choose a piece, find a clear spot, then place it. Press R to rotate.</p><div class="building-grid">${BUILDING_IDS.map((id) => `<button class="building-card" data-action="select-build" data-value="${id}"><span class="building-icon">${icon(BUILDINGS[id].icon)}</span><h3>${BUILDINGS[id].name}</h3><p>${BUILDINGS[id].description}</p><div class="costs">${this.cost(BUILDINGS[id].cost, player.inventory)}</div><span class="card-footer">${player.dev.freeBuild || canAfford(player.inventory, BUILDINGS[id].cost) ? 'SELECT & PLACE' : 'PREVIEW · NEEDS MATERIALS'} ${icon('arrow')}</span></button>`).join('')}</div>`;
     } else if (panel === 'map') {
       body =
-        '<h2 id="panel-title">Know your island.</h2><p class="panel-description">Your position, crew, freshwater, camps, and the way back.</p><div class="map-wrap"><canvas id="island-map" width="512" height="512" aria-label="Island map with your location, crew, springs, buildings and lost packs"></canvas><span class="map-north">N ↑</span></div><div class="map-legend"><span>▲ You</span><span>● Crew</span><span>◆ Camp</span><span>● Freshwater</span><span>✚ Lost pack</span></div>';
+        '<h2 id="panel-title">Know your island.</h2><p class="panel-description">Follow a landmark for salvage, or a quarry for abundant building materials.</p><div class="map-wrap"><canvas id="island-map" width="512" height="512" aria-label="Island map with your location, landmarks, quarries, crew, springs, buildings and lost packs"></canvas><span class="map-north">N ↑</span></div><div class="map-legend"><span>▲ You</span><span>● Crew</span><span>◆ Camp</span><span>● Freshwater</span><span>✚ Lost pack</span></div><div id="site-directory" class="site-directory"></div><button class="text-button" data-action="track-site" data-value="">Clear destination</button>';
     } else if (panel === 'pause') {
       body = `<h2 id="panel-title">Take a breath.</h2><p class="panel-description">${this.sessionMode === 'solo' ? 'Your solo world is paused. Your progress is saved automatically.' : 'The shared world keeps moving. Find a safe place before stepping away.'}</p><div class="pause-buttons"><button class="button primary" data-action="resume">Return to the wild ${icon('arrow')}</button><button class="button secondary" data-action="inventory">Pack & crafting ${icon('bag')}</button><button class="button secondary" data-action="terrain">Terrain tools <kbd>T</kbd></button><button class="button secondary" data-action="settings">Settings ${icon('settings')}</button><button class="button secondary" data-action="developer">Developer tools <kbd>F2</kbd></button><button class="button secondary" data-action="guide">Field guide ${icon('map')}</button>${this.sessionMode === 'solo' ? '<button class="button secondary" data-action="export">Export save ↗</button>' : '<button class="button secondary" data-action="team">Crew & invite ↗</button>'}<button class="text-button" data-action="menu">${this.sessionMode === 'solo' ? 'Save & return to menu' : 'Leave world & return to menu'}</button></div>`;
     } else if (panel === 'settings') {
@@ -350,12 +457,12 @@ export class UI {
         icon('arrow') +
         '</button><button class="text-button" data-action="close">Keep my current expedition</button></div>';
     } else {
-      body = `<h2 id="panel-title">Leave your first footprints.</h2><p class="panel-description">A few things to know before the island becomes home.</p><div class="guide-grid"><article><span>01</span><h3>Explore & gather</h3><p>WASD to walk, Shift to sprint, Space to jump. In water, hold C to dive and release to surface; watch your air. Move close, aim at a resource, then press E or hold the left mouse button. On touch, use the left stick and drag the world to look.</p></article><article><span>02</span><h3>Make your tools</h3><p>Tab opens your pack. A hatchet gathers wood faster; a pickaxe helps with stone. Collect wild flax for fiber. Use 1–5 to change tools, and F to eat or heal.</p></article><article><span>03</span><h3>Shape terrain & make camp</h3><p>T opens terrain tools. Use a pickaxe to dig or flatten, and deposit excavated dirt to build ground up. Aim into a hillside to excavate a cave. B opens the building menu. A green preview marks a valid spot. E or left click places it. R rotates; B cancels. Walls snap to foundations. A bedroll sets your respawn point.</p></article><article><span>04</span><h3>Stay a little longer</h3><p>Eat berries and drink at the stone-ringed freshwater spring. Boars defend their territory. Cook meat beside a campfire, and rest nearby to heal. M opens your map. Esc opens the pause menu.</p></article></div><div class="guide-footer"><span class="muted small">Solo saves every 10 seconds and when you pause. Online worlds keep running while you look through your pack.</span><button class="button secondary" data-action="import">Import solo save ↗</button></div>`;
+      body = `<h2 id="panel-title">Leave your first footprints.</h2><p class="panel-description">A few things to know before the island becomes home.</p><div class="guide-grid"><article><span>01</span><h3>Explore & gather</h3><p>WASD to walk, Shift to sprint, Space to jump. In water, hold C to dive and release to surface; watch your air. Move close, aim at a resource, then press E or hold the left mouse button. On touch, use the left stick and drag the world to look.</p></article><article><span>02</span><h3>Make your tools</h3><p>Tab opens your pack. A hatchet gathers wood faster; a pickaxe helps with stone. Collect wild flax for fiber. Use Details / drop to split supplies or assign quick slots 1–5. Nearby survivors can collect dropped items. F eats or heals.</p></article><article><span>03</span><h3>Shape terrain & make camp</h3><p>T opens terrain tools. Use a pickaxe to dig or flatten, and deposit excavated dirt to build ground up. Aim into a hillside to excavate a cave. B opens the building menu. A green preview marks a valid spot. E or left click places it. R rotates; B cancels. Walls snap to foundations and upper floors. Combine doorways, doors, windows, stairs, stairwell floors and roofs. Aim at built pieces and use E to repair, upgrade, open doors or share chest supplies. A bedroll sets respawn.</p></article><article><span>04</span><h3>Stay a little longer</h3><p>Eat berries and drink at the stone-ringed freshwater spring. Boars defend their territory. Cook meat beside a campfire, and rest nearby to heal. M opens the map: track abandoned camps, depots, lookouts and rich quarries. Smelt ore in a furnace; craft advanced equipment and ammunition beside a workbench. Wear a vest or trail pack from your inventory. Aim bows or firearms at wildlife and use E / Use to shoot; each shot spends ammunition. Esc pauses.</p></article></div><div class="guide-footer"><span class="muted small">Solo saves every 10 seconds and when you pause. Online worlds keep running while you look through your pack.</span><button class="button secondary" data-action="import">Import solo save ↗</button></div>`;
     }
     this.modalBody.innerHTML = body;
     this.modal
       .querySelector('.panel')!
-      .classList.toggle('wide', ['inventory', 'build', 'guide'].includes(panel));
+      .classList.toggle('wide', ['inventory', 'build', 'guide', 'structure'].includes(panel));
     if (panel === 'settings') {
       this.modal.querySelector('#enhanced-effects')!.addEventListener('click', () => {
         for (const key of [
@@ -441,6 +548,29 @@ export class UI {
       ctx.stroke();
     }
     const at = (x: number) => ((x + 320) / WORLD_SIZE) * 512;
+    const sites = world.sites.filter((site) => !state.sites[site.id]?.disabled);
+    const directory = this.modal.querySelector('#site-directory');
+    if (directory && !directory.children.length)
+      directory.innerHTML = sites
+        .map(
+          (site, index) =>
+            `<button class="site-card" data-action="track-site" data-value="${site.id}"><strong>${index + 1} · ${SITE_TYPES[site.kind].name}</strong><span>${SITE_TYPES[site.kind].description}</span><small>${Math.round(Math.hypot(site.x - player.position.x, site.z - player.position.z))} m · Track destination →</small></button>`,
+        )
+        .join('');
+    for (const [index, site] of sites.entries()) {
+      ctx.fillStyle = SITE_TYPES[site.kind].color;
+      ctx.strokeStyle = '#284c48';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(at(site.x), at(site.z), 9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillStyle = '#19372e';
+      ctx.textAlign = 'center';
+      ctx.fillText(String(index + 1), at(site.x), at(site.z) + 4);
+    }
+    ctx.textAlign = 'left';
     for (const r of world.resources)
       if (r.kind === 'spring') {
         ctx.fillStyle = '#d0fcfb';

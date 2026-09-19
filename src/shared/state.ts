@@ -1,5 +1,5 @@
-import type { BuildingKind, Inventory, ItemId, MilestoneId } from './content';
-import { RESOURCE_TYPES } from './content';
+import type { BuildingKind, Inventory, ItemId, MilestoneId, StructureGrade } from './content';
+import { RESOURCE_TYPES, STRUCTURE_GRADES } from './content';
 import { createEnvironment, DEFAULT_TUNING } from './environment';
 import type { Environment, Tuning } from './environment';
 import type { Species } from './content';
@@ -8,6 +8,7 @@ import { SPAWN, terrainHeight, WORLD_VERSION } from './world';
 import type { WorldDefinition } from './world';
 import { emptyTerrain } from './terrain';
 import type { TerrainState } from './terrain';
+import { siteLoot } from './site-generation';
 
 export interface Vec3 {
   x: number;
@@ -46,6 +47,8 @@ export interface PlayerState {
   oxygen: number;
   inventory: Inventory;
   equipped: ItemId;
+  worn: { armor: ItemId | null; backpack: ItemId | null };
+  quickSlots: ItemId[];
   cooldown: number;
   grounded: boolean;
   milestones: Record<MilestoneId, number>;
@@ -66,6 +69,32 @@ export interface Building {
   y: number;
   z: number;
   rotation: number;
+  grade: StructureGrade;
+  health: number;
+  open: boolean;
+  inventory: Inventory;
+  support: string | null;
+}
+export type BuildingPlacement = Pick<Building, 'kind' | 'x' | 'y' | 'z' | 'rotation'> & {
+  support?: string | null;
+};
+export function createBuilding(placement: BuildingPlacement, id: string, owner: string): Building {
+  return {
+    ...placement,
+    id,
+    owner,
+    grade: 'timber',
+    health: STRUCTURE_GRADES.timber.health,
+    open: false,
+    inventory: {},
+    support: placement.support ?? null,
+  };
+}
+export interface SiteState {
+  inventory: Inventory;
+  cycle: number;
+  restockAt: number;
+  disabled: boolean;
 }
 export interface LootBag {
   id: string;
@@ -91,7 +120,7 @@ export interface Animal {
   respawnAt: number;
 }
 export interface GameState {
-  version: 3;
+  version: 4;
   terrain: TerrainState;
   environment: Environment;
   tuning: Tuning;
@@ -106,6 +135,7 @@ export interface GameState {
   buildings: Building[];
   bags: LootBag[];
   animals: Animal[];
+  sites: Record<string, SiteState>;
 }
 export interface GameEvent {
   type: 'gather' | 'craft' | 'build' | 'damage' | 'death' | 'consume' | 'loot';
@@ -135,6 +165,8 @@ export function createPlayer(id: string, name: string, world: WorldDefinition): 
     oxygen: 100,
     inventory: { rock: 1, berries: 3 },
     equipped: 'rock',
+    worn: { armor: null, backpack: null },
+    quickSlots: ['rock', 'hatchet', 'pickaxe', 'berries', 'bandage'],
     cooldown: 0,
     grounded: true,
     milestones: { gather: 0, craft: 0, build: 0, camp: 0 },
@@ -147,7 +179,7 @@ export function createPlayer(id: string, name: string, world: WorldDefinition): 
 
 export function createState(world: WorldDefinition): GameState {
   return {
-    version: 3,
+    version: 4,
     terrain: emptyTerrain(),
     environment: createEnvironment(),
     tuning: { ...DEFAULT_TUNING },
@@ -162,6 +194,12 @@ export function createState(world: WorldDefinition): GameState {
     buildings: [],
     bags: [],
     animals: populateWildlife(world),
+    sites: Object.fromEntries(
+      world.sites.map((site) => [
+        site.id,
+        { inventory: siteLoot(world.seed, site, 0), cycle: 0, restockAt: 0, disabled: false },
+      ]),
+    ),
   };
 }
 

@@ -3,11 +3,11 @@ import { graphicsSchema, DEFAULT_GRAPHICS } from './render/settings';
 import { DeveloperControls } from './developer';
 import { version } from '../../package.json';
 import { buildCandidate, validateBuild } from '../shared/building';
-import { isConsumable } from '../shared/content';
+import { isConsumable, WEAPONS } from '../shared/content';
 import type { BuildingKind, ItemId, RecipeId } from '../shared/content';
 import { MAX_SAVE_BYTES, parseSave, encodeSave } from '../shared/save';
 import type { SaveFile } from '../shared/save';
-import type { Building, PlayerState } from '../shared/state';
+import type { BuildingPlacement, PlayerState } from '../shared/state';
 import { DEFAULT_SEED, generateWorld } from '../shared/world';
 import { GameAudio } from './audio';
 import { Input } from './input';
@@ -20,7 +20,8 @@ import { DEFAULT_SETTINGS, WorldRenderer } from './render/renderer';
 import type { RenderSettings, Target } from './render/renderer';
 import { getSnapshot, LocalSession, RemoteSession } from './session';
 import type { Session } from './session';
-import { HOTBAR, UI } from './ui/ui';
+import { UI } from './ui/ui';
+import { CRAFT_CATEGORIES } from './ui/pack';
 import type { Panel } from './ui/ui';
 import { normalizeServerUrl, worldInviteUrl } from './multiplayer';
 
@@ -53,7 +54,7 @@ export class Game {
   private buildKind: BuildingKind | null = null;
   private rotation = 0;
   private target: Target | null = null;
-  private candidate: Omit<Building, 'id' | 'owner'> | null = null;
+  private candidate: BuildingPlacement | null = null;
   private previousFrame = 0;
   private uiTime = 0;
   private saveTime = 0;
@@ -246,7 +247,13 @@ export class Game {
         ? this.terrainTools.level
         : Math.round((hit?.point.y ?? p?.position.y ?? 8) * 4) / 4;
     }
-    this.ui.showPanel(panel, this.player(), this.settings);
+    this.ui.showPanel(
+      panel,
+      this.player(),
+      this.settings,
+      this.session?.state,
+      this.session?.world,
+    );
     if (panel === 'team' && this.session)
       this.ui.updateTeam(this.session.state, this.player()!, this.session.status);
     if (panel === 'map' && this.session)
@@ -309,8 +316,14 @@ export class Game {
       this.terrainTools.cancel();
       this.terrainTools.mode = value as Earthwork['mode'];
       this.terrainTools.level = level;
-      if (value !== 'add' && this.player()?.inventory.pickaxe)
-        this.session?.command({ type: 'equip', item: 'pickaxe' });
+      if (
+        value !== 'add' &&
+        (this.player()?.inventory.ironPickaxe || this.player()?.inventory.pickaxe)
+      )
+        this.session?.command({
+          type: 'equip',
+          item: this.player()?.inventory.ironPickaxe ? 'ironPickaxe' : 'pickaxe',
+        });
       this.resume();
       return;
     }
@@ -395,17 +408,86 @@ export class Game {
         this.openPanel('build');
         return;
       }
-      if (HOTBAR[index]) {
+      const slot = this.player()?.quickSlots[index];
+      if (slot) {
         this.cancelBuild();
         this.terrainTools.cancel();
-        this.session.command({ type: 'equip', item: HOTBAR[index] });
+        this.session.command({ type: 'equip', item: slot });
       }
     } else if (action === 'item' && this.session) {
       if (isConsumable(value as ItemId))
         this.session.command({ type: 'consume', item: value as ItemId });
       else this.session.command({ type: 'equip', item: value as ItemId });
+    } else if (action === 'wear') {
+      this.session?.command({ type: 'wear', item: value as ItemId });
+    } else if (action === 'assign-slot') {
+      this.session?.command({
+        type: 'quick-slot',
+        item: value as ItemId,
+        slot: Number(this.ui.root.querySelector<HTMLSelectElement>('#quick-slot')?.value),
+      });
+    } else if (action === 'track-site') {
+      this.ui.trackedSiteId = value || null;
+      this.resume();
+    } else if (action === 'craft-filter' && CRAFT_CATEGORIES.some((c) => c === value)) {
+      this.ui.craftCategory = value!;
+      this.openPanel('inventory');
+    } else if (action.startsWith('structure-') && this.ui.structureId) {
+      const operation = action.slice(10);
+      if (
+        operation === 'door' ||
+        operation === 'repair' ||
+        operation === 'upgrade' ||
+        operation === 'dismantle'
+      )
+        this.session?.command({
+          type: 'structure',
+          target: this.ui.structureId,
+          action: operation,
+        });
+    } else if ((action === 'storage-take' || action === 'storage-deposit') && this.ui.structureId) {
+      const direction = action === 'storage-take' ? 'take' : 'deposit';
+      const count = Number(
+        this.ui.root.querySelector<HTMLInputElement>(`#store-${direction}-${value}`)?.value,
+      );
+      this.session?.command({
+        type: 'storage',
+        target: this.ui.structureId,
+        direction,
+        item: value as ItemId,
+        count,
+      });
+    } else if (action === 'item-details') {
+      this.ui.selectedItem = value as ItemId;
+      this.openPanel('item-details');
+    } else if (action === 'drop-amount') {
+      const input = this.ui.root.querySelector<HTMLInputElement>('#drop-quantity');
+      if (input) input.value = value ?? '1';
+    } else if (action === 'drop-item') {
+      const count = Number(this.ui.root.querySelector<HTMLInputElement>('#drop-quantity')?.value);
+      this.session?.command({ type: 'drop', item: value as ItemId, count });
+    } else if ((action === 'collect-all' || action === 'collect-item') && this.ui.suppliesId) {
+      if (action === 'collect-all')
+        this.session?.command({ type: 'collect', target: this.ui.suppliesId });
+      else {
+        const count = Number(
+          this.ui.root.querySelector<HTMLInputElement>(`#collect-quantity-${value}`)?.value,
+        );
+        this.session?.command({
+          type: 'collect',
+          target: this.ui.suppliesId,
+          item: value as ItemId,
+          count,
+        });
+      }
     } else if (action === 'craft')
-      this.session?.command({ type: 'craft', recipe: value as RecipeId });
+      this.session?.command({
+        type: 'craft',
+        recipe: value as RecipeId,
+        count: Number(
+          this.ui.root.querySelector<HTMLInputElement>(`#craft-count-${value}`)?.value ?? 1,
+        ),
+      });
     else if (action === 'select-build') {
       this.terrainTools.cancel();
       this.buildKind = value as BuildingKind;
@@ -573,9 +655,22 @@ export class Game {
         rotation: this.rotation,
       });
     else if (this.target) {
+      if (this.target.kind === 'bag' || this.target.kind === 'site') {
+        this.ui.suppliesId = this.target.id;
+        this.openPanel('supplies');
+        return;
+      }
+      if (this.target.kind === 'building') {
+        this.ui.structureId = this.target.id;
+        this.openPanel('structure');
+        return;
+      }
       this.session.command({ type: 'interact', target: this.target.id });
       this.renderer.swingTool();
-    } else this.renderer.swingTool();
+    } else {
+      if (WEAPONS[this.player()!.equipped]) this.session.command({ type: 'attack' });
+      this.renderer.swingTool();
+    }
     this.lastAction = performance.now();
   }
   private consume(): void {
@@ -671,6 +766,7 @@ export class Game {
           p.position.z - Math.cos(this.input.yaw) * distance,
           this.rotation,
           p.position.y + 0.65,
+          p.position,
         );
         const result = validateBuild(session.state, session.world, p, this.candidate);
         this.renderer.showPreview(this.candidate, result.ok);
@@ -751,7 +847,10 @@ export class Game {
           )
         : [],
       mutations: this.session?.state.resources,
+      bags: this.session?.state.bags,
       buildings: this.session?.state.buildings,
+      sites: this.session?.world.sites,
+      siteStates: this.session?.state.sites,
       target: this.target?.id,
       build: this.candidate,
     });

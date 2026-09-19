@@ -170,7 +170,13 @@ export async function startWorldServer(options: ServerOptions = {}) {
     socket.send(JSON.stringify(message));
   };
   const snapshot = (client: Client) => {
-    const result = snapshotFor(sim.state, client.playerId!, sim.devAllowed, client.terrainRevision);
+    const result = snapshotFor(
+      sim.state,
+      client.playerId!,
+      sim.devAllowed,
+      client.terrainRevision,
+      sim.world,
+    );
     client.terrainRevision = sim.state.terrain.revision;
     const active = new Set([...clients.values()].map((c) => c.playerId));
     result.players = result.players.filter((p) => active.has(p.id));

@@ -4,7 +4,7 @@ import { chromium } from '@playwright/test';
 import { buildCandidate } from '../src/shared/building';
 import { encodeSave } from '../src/shared/save';
 import { Simulation } from '../src/shared/simulation';
-import { createState } from '../src/shared/state';
+import { createBuilding, createState } from '../src/shared/state';
 import { generateWorld, terrainHeight } from '../src/shared/world';
 import { setWeather } from '../src/shared/environment';
 import { habitatValid } from '../src/shared/wildlife';
@@ -35,10 +35,10 @@ for (let i = 0; i < 50; i++) {
   const x = ((i % 10) - 4.5) * 4,
     z = 70 + Math.floor(i / 10) * 4;
   const base = buildCandidate(sim.state, world, 'foundation', x, z, 0);
-  sim.state.buildings.push({ ...base, id: `b${sim.state.nextId++}`, owner: player.id });
+  sim.state.buildings.push(createBuilding(base, `b${sim.state.nextId++}`, player.id));
   const kind = i < 25 ? 'wall' : i < 40 ? 'campfire' : 'bedroll';
   const extra = buildCandidate(sim.state, world, kind, base.x, base.z, 0);
-  sim.state.buildings.push({ ...extra, id: `b${sim.state.nextId++}`, owner: player.id });
+  sim.state.buildings.push(createBuilding(extra, `b${sim.state.nextId++}`, player.id));
 }
 for (const resource of world.resources)
   if (

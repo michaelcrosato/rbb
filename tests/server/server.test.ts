@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from '../../src/shared/protocol';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,7 +11,7 @@ import { WorldStore } from '../../server/store';
 import { TokenBucket } from '../../server/rate-limit';
 import type { ClientMessage, ServerMessage, Snapshot } from '../../src/shared/protocol';
 import { Simulation } from '../../src/shared/simulation';
-import { createState, idleInput } from '../../src/shared/state';
+import { createBuilding, createState, idleInput } from '../../src/shared/state';
 import { generateWorld } from '../../src/shared/world';
 import { BALANCE } from '../../src/shared/content';
 import { applyTerrainUpdate, emptyTerrain, terrainFloor } from '../../src/shared/terrain';
@@ -71,7 +72,12 @@ async function connect(server: RunningServer): Promise<Peer> {
 }
 async function joinWorld(server: RunningServer, token?: string) {
   const peer = await connect(server);
-  peer.send({ type: 'hello', protocol: 3, name: 'Tester', ...(token ? { token } : {}) });
+  peer.send({
+    type: 'hello',
+    protocol: PROTOCOL_VERSION,
+    name: 'Tester',
+    ...(token ? { token } : {}),
+  });
   const welcome = await peer.wait('welcome');
   return { peer, welcome };
 }
@@ -82,6 +88,254 @@ afterEach(async () => {
 });
 
 describe('authoritative world server', () => {
+  it('contests landmark salvage without duplication and persists the shared remainder across restart', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'rbb-landmark-server-'));
+    directories.push(dir);
+    const world = generateWorld('quiet-frontier'),
+      sim = new Simulation(world, createState(world));
+    const site = world.sites.find((s) => s.kind === 'depot')!;
+    const tokens = ['d'.repeat(64), 'e'.repeat(64)];
+    const store = new WorldStore(join(dir, 'world.db'));
+    for (const [index, token] of tokens.entries()) {
+      const player = sim.addPlayer(`salvager${index}`, `Salvager ${index}`);
+      player.position = { x: site.x + index * 0.5, y: site.y, z: site.z + 2.5 };
+      store.register(token, player.id);
+    }
+    sim.state.sites[site.id].inventory = { parts: 1, scrap: 8 };
+    store.save(sim.state);
+    store.close();
+    const server = await setup(dir),
+      peers = await Promise.all(tokens.map((token) => joinWorld(server, token)));
+    for (const { peer } of peers)
+      peer.send({
+        type: 'command',
+        seq: 1,
+        command: { type: 'collect', target: site.id, item: 'parts', count: 1 },
+      });
+    const snapshots = await Promise.all(
+      peers.map(
+        async ({ peer }) =>
+          (
+            await peer.wait(
+              'snapshot',
+              (m) => m.snapshot.sites[site.id].inventory.parts === undefined,
+            )
+          ).snapshot,
+      ),
+    );
+    expect(snapshots.reduce((sum, s) => sum + (s.self.inventory.parts ?? 0), 0)).toBe(1);
+    expect(snapshots.every((s) => s.players.every((p) => !('inventory' in p)))).toBe(true);
+    peers[0].peer.send({
+      type: 'command',
+      seq: 2,
+      command: { type: 'collect', target: site.id, item: 'scrap', count: 3 },
+    });
+    await peers[0].peer.wait('snapshot', (m) => m.snapshot.self.inventory.scrap === 3);
+    peers[0].peer.send({
+      type: 'command',
+      seq: 3,
+      command: { type: 'collect', target: 'site-lookout' },
+    });
+    expect((await peers[0].peer.wait('result', (m) => m.seq === 3)).result.ok).toBe(false);
+    await server.close();
+    const restarted = await setup(dir),
+      resumed = await joinWorld(restarted, tokens[0]);
+    expect(resumed.welcome.snapshot.sites[site.id].inventory).toEqual({ scrap: 5 });
+    expect(resumed.welcome.snapshot.sites[site.id].restockAt).toBeGreaterThan(
+      resumed.welcome.snapshot.time,
+    );
+    expect(resumed.welcome.snapshot.self.inventory.scrap).toBe(3);
+    expect(resumed.welcome.snapshot.sandbox).toBe(false);
+  });
+
+  it('owns workshop costs, contested storage, gear, reinforcement and firearm damage on a normal server', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'rbb-workshop-server-'));
+    directories.push(dir);
+    const world = generateWorld('quiet-frontier'),
+      sim = new Simulation(world, createState(world));
+    const smith = sim.addPlayer('smith', 'Smith'),
+      friend = sim.addPlayer('friend', 'Friend');
+    friend.position.x = 0.5;
+    smith.inventory = {
+      rock: 1,
+      wood: 100,
+      stone: 36,
+      ironOre: 8,
+      charcoal: 4,
+      huntingRifle: 1,
+      cartridge: 1,
+      armor: 1,
+      backpack: 1,
+    };
+    const add = (kind: 'furnace' | 'storage' | 'wall', x: number, z: number) => {
+      const b = createBuilding(
+        { kind, x, y: 8, z, rotation: 0 },
+        `b${sim.state.nextId++}`,
+        smith.id,
+      );
+      sim.state.buildings.push(b);
+      return b;
+    };
+    add('furnace', -3, 86);
+    const chest = add('storage', 3, 86),
+      wall = add('wall', 0, 89);
+    chest.inventory = { parts: 1 };
+    wall.health = 90;
+    sim.state.animals = [
+      {
+        id: 'wild-server-test',
+        species: 'boar',
+        behavior: 'roam',
+        x: 0,
+        y: 8,
+        z: 72,
+        homeX: 0,
+        homeZ: 72,
+        yaw: 0,
+        health: 60,
+        cooldown: 0,
+        respawnAt: 0,
+      },
+    ];
+    sim.state.tuning.wildlifeSpeed =
+      sim.state.tuning.wildlifeAggression =
+      sim.state.tuning.needsRate =
+        0;
+    const tokenA = 'f'.repeat(64),
+      tokenB = '9'.repeat(64),
+      store = new WorldStore(join(dir, 'world.db'));
+    store.save(sim.state);
+    store.register(tokenA, smith.id);
+    store.register(tokenB, friend.id);
+    store.close();
+    const server = await setup(dir),
+      a = await joinWorld(server, tokenA),
+      b = await joinWorld(server, tokenB);
+    a.peer.send({ type: 'command', seq: 1, command: { type: 'craft', recipe: 'metal', count: 2 } });
+    const smelted = (await a.peer.wait('snapshot', (m) => m.snapshot.self.inventory.metal === 4))
+      .snapshot;
+    expect(smelted.self.inventory.ironOre).toBeUndefined();
+    expect(smelted.self.inventory.charcoal).toBeUndefined();
+    a.peer.send({ type: 'command', seq: 2, command: { type: 'craft', recipe: 'metal' } });
+    expect((await a.peer.wait('result', (m) => m.seq === 2)).result.ok).toBe(false);
+    a.peer.send({ type: 'command', seq: 3, command: { type: 'wear', item: 'armor' } });
+    a.peer.send({ type: 'command', seq: 4, command: { type: 'wear', item: 'backpack' } });
+    a.peer.send({
+      type: 'command',
+      seq: 5,
+      command: { type: 'structure', target: wall.id, action: 'upgrade' },
+    });
+    const upgraded = (
+      await a.peer.wait(
+        'snapshot',
+        (m) => m.snapshot.buildings.find((b) => b.id === wall.id)?.grade === 'stone',
+      )
+    ).snapshot;
+    expect(upgraded.buildings.find((b) => b.id === wall.id)?.health).toBe(225);
+    expect(upgraded.self.inventory.stone).toBeUndefined();
+    expect(upgraded.self.inventory.wood).toBe(96);
+    a.peer.send({
+      type: 'command',
+      seq: 6,
+      command: { type: 'storage', target: chest.id, direction: 'take', item: 'parts', count: 1 },
+    });
+    b.peer.send({
+      type: 'command',
+      seq: 1,
+      command: { type: 'storage', target: chest.id, direction: 'take', item: 'parts', count: 1 },
+    });
+    const results = await Promise.all(
+      [a, b].map(
+        async ({ peer }) =>
+          (
+            await peer.wait(
+              'snapshot',
+              (m) => !m.snapshot.buildings.find((b) => b.id === chest.id)?.inventory.parts,
+            )
+          ).snapshot,
+      ),
+    );
+    expect(results.reduce((sum, s) => sum + (s.self.inventory.parts ?? 0), 0)).toBe(1);
+    a.peer.send({ type: 'command', seq: 7, command: { type: 'equip', item: 'huntingRifle' } });
+    a.peer.send({
+      type: 'command',
+      seq: 8,
+      command: { type: 'move', input: { ...idleInput(), pitch: Math.atan2(-1.05, 14) } },
+    });
+    a.peer.send({ type: 'command', seq: 9, command: { type: 'attack' } });
+    const hunted = (await a.peer.wait('snapshot', (m) => m.snapshot.animals[0].health === 0))
+      .snapshot;
+    expect(hunted.self.inventory.cartridge).toBeUndefined();
+    expect(hunted.bags).toHaveLength(1);
+    a.peer.send({ type: 'command', seq: 10, command: { type: 'attack' } });
+    expect((await a.peer.wait('result', (m) => m.seq === 10)).result.ok).toBe(false);
+    await server.close();
+    const restarted = await setup(dir),
+      resumed = await joinWorld(restarted, tokenA);
+    expect(resumed.welcome.snapshot.self.worn).toEqual({ armor: 'armor', backpack: 'backpack' });
+    expect(resumed.welcome.snapshot.buildings.find((b) => b.id === wall.id)).toMatchObject({
+      grade: 'stone',
+      health: 225,
+    });
+    expect(resumed.welcome.snapshot.bags).toHaveLength(1);
+    expect(resumed.welcome.snapshot.devAllowed).toBe(false);
+  });
+  it('shares dropped stacks, persists partial collection, and resolves competing pickups once', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'rbb-supplies-test-'));
+    directories.push(dir);
+    let server = await setup(dir);
+    let a = await joinWorld(server),
+      b = await joinWorld(server);
+    a.peer.send({ type: 'command', seq: 1, command: { type: 'drop', item: 'berries', count: 2 } });
+    const dropped = (await b.peer.wait('snapshot', (message) => message.snapshot.bags.length === 1))
+      .snapshot;
+    const bag = dropped.bags[0];
+    expect(bag.inventory.berries).toBe(2);
+    b.peer.send({
+      type: 'command',
+      seq: 1,
+      command: { type: 'collect', target: bag.id, item: 'berries', count: 1 },
+    });
+    const partial = (
+      await b.peer.wait('snapshot', (message) => message.snapshot.self.inventory.berries === 4)
+    ).snapshot;
+    expect(partial.bags[0].inventory.berries).toBe(1);
+    const aToken = a.welcome.token,
+      bToken = b.welcome.token;
+    await server.close();
+    servers.splice(servers.indexOf(server), 1);
+    server = await setup(dir);
+    a = await joinWorld(server, aToken);
+    b = await joinWorld(server, bToken);
+    expect(a.welcome.snapshot.self.inventory.berries).toBe(1);
+    expect(b.welcome.snapshot.self.inventory.berries).toBe(4);
+    expect(b.welcome.snapshot.bags[0].inventory.berries).toBe(1);
+    const tick = b.welcome.snapshot.tick;
+    for (const survivor of [a, b])
+      survivor.peer.send({
+        type: 'command',
+        seq: 1,
+        command: { type: 'collect', target: bag.id, item: 'berries', count: 1 },
+      });
+    const snapshots = await Promise.all(
+      [a, b].map(
+        async ({ peer }) =>
+          (
+            await peer.wait(
+              'snapshot',
+              (message) => message.snapshot.tick > tick && message.snapshot.bags.length === 0,
+            )
+          ).snapshot,
+      ),
+    );
+    expect(
+      snapshots.reduce((sum, snapshot) => sum + (snapshot.self.inventory.berries ?? 0), 0),
+    ).toBe(6);
+    expect(
+      snapshots.every((snapshot) => snapshot.players.every((player) => !('inventory' in player))),
+    ).toBe(true);
+  });
+
   it('replicates ordinary-player excavation as deltas, rejects terrain cheats, and restores edits after restart', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'rbb-terrain-test-'));
     directories.push(dir);
@@ -165,7 +419,12 @@ describe('authoritative world server', () => {
     const health = (await fetch(`http://127.0.0.1:${server.port}/health`).then((r) =>
       r.json(),
     )) as { players: number; ready: boolean };
-    expect(health).toMatchObject({ ready: true, players: 2, version: pkg.version, protocol: 3 });
+    expect(health).toMatchObject({
+      ready: true,
+      players: 2,
+      version: pkg.version,
+      protocol: PROTOCOL_VERSION,
+    });
     const snapshot = (await a.peer.wait('snapshot', (m) => m.snapshot.players.length === 1))
       .snapshot;
     expect(snapshot.players[0].id).toBe(b.welcome.playerId);
@@ -268,10 +527,15 @@ describe('authoritative world server', () => {
     const server = await setup(),
       { welcome } = await joinWorld(server);
     const duplicate = await connect(server);
-    duplicate.send({ type: 'hello', protocol: 3, name: 'Tester', token: welcome.token });
+    duplicate.send({
+      type: 'hello',
+      protocol: PROTOCOL_VERSION,
+      name: 'Tester',
+      token: welcome.token,
+    });
     expect((await duplicate.wait('error')).message).toContain('already connected');
     const fake = await connect(server);
-    fake.send({ type: 'hello', protocol: 3, name: 'Tester', token: 'a'.repeat(64) });
+    fake.send({ type: 'hello', protocol: PROTOCOL_VERSION, name: 'Tester', token: 'a'.repeat(64) });
     expect((await fake.wait('error')).message).toContain('no longer valid');
     const hostile = new WebSocket(`ws://127.0.0.1:${server.port}`, {
       origin: 'https://untrusted.example',
@@ -320,7 +584,9 @@ describe('authoritative world server', () => {
     expect(BALANCE.maxPlayers).toBe(4);
     const peers = await Promise.all(Array.from({ length: 6 }, () => connect(server)));
     const closed = peers.map((peer) => once(peer.ws, 'close'));
-    peers.forEach((peer, i) => peer.send({ type: 'hello', protocol: 3, name: `Crew ${i}` }));
+    peers.forEach((peer, i) =>
+      peer.send({ type: 'hello', protocol: PROTOCOL_VERSION, name: `Crew ${i}` }),
+    );
     const admitted: { peer: Peer; welcome: Extract<ServerMessage, { type: 'welcome' }> }[] = [];
     for (const peer of peers) {
       const deadline = performance.now() + 4000;

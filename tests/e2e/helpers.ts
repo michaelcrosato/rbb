@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import type { PlayerState, Building, Animal } from '../../src/shared/state';
+import type { PlayerState, Building, Animal, LootBag } from '../../src/shared/state';
 import type { Resource } from '../../src/shared/world';
 import { RESOURCE_TYPES } from '../../src/shared/content';
 
@@ -9,8 +9,13 @@ import type { GraphicsSettings } from '../../src/client/render/settings';
 import type { WorldRenderer } from '../../src/client/render/renderer';
 import type { PublicPlayer } from '../../src/shared/protocol';
 import type { TerrainState, TerrainHit, TerrainBrush } from '../../src/shared/terrain';
+import type { WorldSite } from '../../src/shared/site-generation';
+import type { SiteState } from '../../src/shared/state';
 
 export interface Diagnostics {
+  bags: LootBag[];
+  sites: WorldSite[];
+  siteStates: Record<string, SiteState>;
   terrain: TerrainState;
   terrainMesh: { revision: number; samples: number; editedChunks: number; triangles: number };
   terrainTool: {
@@ -58,6 +63,61 @@ export const diagnostics = (page: Page): Promise<Diagnostics> =>
   page.evaluate(() =>
     (window as unknown as { rbbDiagnostics: () => Diagnostics }).rbbDiagnostics(),
   );
+
+export async function waitForMovementStop(page: Page): Promise<void> {
+  // Native keyup can finish before the next client frame sends its idle command.
+  // Observe the simulation/server acknowledgement before sampling a final position.
+  await page.waitForFunction(
+    () => {
+      const input = (window as unknown as { rbbDiagnostics: () => Diagnostics }).rbbDiagnostics()
+        .player.input;
+      return input.forward === 0 && input.strafe === 0;
+    },
+    undefined,
+    { timeout: 8000 },
+  );
+}
+
+/** Native touch gestures only; diagnostics supplies read-only camera feedback. */
+export async function touchAimAt(page: Page, x: number, y: number, z: number): Promise<void> {
+  const { player, look } = await diagnostics(page);
+  const dx = x - player.position.x,
+    dz = z - player.position.z;
+  const yaw = Math.atan2(-dx, -dz);
+  const pitch = Math.atan2(y - player.position.y - 1.65, Math.hypot(dx, dz));
+  const delta = Math.atan2(Math.sin(yaw - look.yaw), Math.cos(yaw - look.yaw));
+  let remainingX = -delta / (0.0022 * 1.8),
+    remainingY = -(pitch - look.pitch) / (0.0022 * 1.8);
+  const viewport = page.viewportSize()!;
+  const origin = { x: viewport.width * 0.67, y: viewport.height * 0.45 };
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    while (Math.abs(remainingX) > 0.1 || Math.abs(remainingY) > 0.1) {
+      const stepX = Math.max(-60, Math.min(60, remainingX));
+      const stepY = Math.max(-90, Math.min(90, remainingY));
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [{ ...origin, id: 1 }],
+      });
+      for (let step = 1; step <= 4; step++) {
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchMove',
+          touchPoints: [
+            { x: origin.x + (stepX * step) / 4, y: origin.y + (stepY * step) / 4, id: 1 },
+          ],
+        });
+      }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      remainingX -= stepX;
+      remainingY -= stepY;
+    }
+    await expect
+      .poll(async () => Math.abs((await diagnostics(page)).look.pitch - pitch))
+      .toBeLessThan(0.03);
+  } finally {
+    await cdp.detach();
+  }
+}
 
 export async function startSolo(
   page: Page,
@@ -130,7 +190,8 @@ export async function aimAt(page: Page, x: number, y: number, z: number): Promis
 export async function walkTo(page: Page, x: number, z: number, stop = 0.7): Promise<void> {
   // Stop after observed movement; wall-clock taps vary with render and driver latency.
   const deadline = Date.now() + 45000;
-  const route: { x: number; z: number; distance: number; key: string }[] = [];
+  const route: { x: number; z: number; distance: number; stride: number; correcting: boolean }[] =
+    [];
   while (Date.now() < deadline) {
     const d = await diagnostics(page);
     const distance = Math.hypot(x - d.player.position.x, z - d.player.position.z);
@@ -139,18 +200,29 @@ export async function walkTo(page: Page, x: number, z: number, stop = 0.7): Prom
     const lastStep = previous
       ? Math.hypot(d.player.position.x - previous.x, d.player.position.z - previous.z)
       : 0;
-    // A delayed key release can step across a small goal repeatedly. A lateral
-    // correction breaks that cycle, then the next forward step approaches afresh.
-    const key =
-      previous?.key === 'KeyW' && distance < lastStep && previous.distance < lastStep
-        ? 'KeyD'
-        : 'KeyW';
-    route.push({ x: d.player.position.x, z: d.player.position.z, distance, key });
-    const heading = Math.atan2(d.player.position.x - x, d.player.position.z - z);
+    // Use the same short pulse near the goal, so its observed travel includes the
+    // native key-release latency. Larger pulses would invalidate that estimate.
+    const stride = distance < Math.max(2, lastStep * 2) ? 0.1 : Math.min(2, (distance - stop) / 2);
+    // Repeated overshoots mean the minimum pulse crosses the goal. Turn one pulse
+    // along a chord ending one pulse from the goal, then approach it head-on.
+    const correcting =
+      previous?.stride === 0.1 &&
+      !previous.correcting &&
+      distance < lastStep &&
+      previous.distance < lastStep;
+    route.push({ x: d.player.position.x, z: d.player.position.z, distance, stride, correcting });
+    const heading =
+      Math.atan2(d.player.position.x - x, d.player.position.z - z) +
+      (correcting ? Math.acos(Math.min(1, distance / (2 * lastStep))) : 0);
     if (
       Math.abs(Math.atan2(Math.sin(heading - d.look.yaw), Math.cos(heading - d.look.yaw))) > 0.025
     )
-      await aimAt(page, x, d.player.position.y + 1.65, z);
+      await aimAt(
+        page,
+        d.player.position.x - Math.sin(heading) * 5,
+        d.player.position.y + 1.65,
+        d.player.position.z - Math.cos(heading) * 5,
+      );
     const moved = page.waitForFunction(
       ({ x, z, stop, startX, startZ, stride }) => {
         const p = (window as unknown as { rbbDiagnostics: () => Diagnostics }).rbbDiagnostics()
@@ -165,16 +237,17 @@ export async function walkTo(page: Page, x: number, z: number, stop = 0.7): Prom
         stop,
         startX: d.player.position.x,
         startZ: d.player.position.z,
-        stride: key === 'KeyD' ? 0.1 : Math.min(2, Math.max(0.1, (distance - stop) / 2)),
+        stride,
       },
       { timeout: 8000 },
     );
     try {
       // Install the observer before keydown and release immediately when it resolves,
       // even if the keydown acknowledgement is still waiting for a slow render frame.
-      await Promise.all([page.keyboard.down(key), moved.then(() => page.keyboard.up(key))]);
+      await Promise.all([page.keyboard.down('KeyW'), moved.then(() => page.keyboard.up('KeyW'))]);
+      await waitForMovementStop(page);
     } catch (error) {
-      await page.keyboard.up(key);
+      await page.keyboard.up('KeyW');
       throw error;
     }
   }

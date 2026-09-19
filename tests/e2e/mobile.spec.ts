@@ -1,5 +1,125 @@
 import { test, expect } from '@playwright/test';
-import { diagnostics, startSolo } from './helpers';
+import { diagnostics, startSolo, touchAimAt } from './helpers';
+import { importExpedition, observeProgressionErrors } from './progression-helpers';
+import { generateWorld } from '../../src/shared/world';
+import { createBuilding, createState } from '../../src/shared/state';
+import { Simulation } from '../../src/shared/simulation';
+
+test('touch crafting, equipment, shared storage and landmark tracking fit both orientations', async ({
+  page,
+}, testInfo) => {
+  const errors = observeProgressionErrors(page);
+  await startSolo(page, 'mobile');
+  const world = generateWorld('quiet-frontier'),
+    state = createState(world),
+    sim = new Simulation(world, state),
+    p = sim.addPlayer('local', 'Builder');
+  p.inventory = { rock: 1, cloth: 20, leather: 12, fiber: 30, wood: 50, bow: 1, arrow: 6 };
+  p.quickSlots[0] = 'bow';
+  state.animals = [];
+  const chest = createBuilding(
+    { kind: 'storage', x: 0, y: 8, z: 83, rotation: 0 },
+    `b${state.nextId++}`,
+    p.id,
+  );
+  state.buildings.push(
+    chest,
+    createBuilding(
+      { kind: 'workbench', x: 3, y: 8, z: 86, rotation: 0 },
+      `b${state.nextId++}`,
+      p.id,
+    ),
+  );
+  await importExpedition(page, state, true);
+  await page.getByRole('button', { name: 'Pack and crafting', exact: true }).tap();
+  await page.getByRole('button', { name: 'Equipment', exact: true }).tap();
+  for (const item of ['backpack', 'armor']) {
+    await page.locator(`[data-action="craft"][data-value="${item}"]`).tap();
+    await expect
+      .poll(async () => (await diagnostics(page)).player.inventory[item as 'backpack' | 'armor'])
+      .toBe(1);
+    await page.locator(`[data-action="wear"][data-value="${item}"]`).tap();
+  }
+  await expect
+    .poll(async () => (await diagnostics(page)).player.worn)
+    .toEqual({ armor: 'armor', backpack: 'backpack' });
+  await page.screenshot({ path: testInfo.outputPath('equipment-portrait.png') });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole('button', { name: 'Close panel' }).tap();
+  await touchAimAt(page, chest.x, chest.y + 0.5, chest.z);
+  await page.getByRole('button', { name: 'Gather or place' }).tap();
+  await expect.poll(async () => (await diagnostics(page)).panel).toBe('structure');
+  await page.getByLabel('Store Wood quantity', { exact: true }).fill('12');
+  await page.getByRole('button', { name: 'Store Wood', exact: true }).tap();
+  await expect.poll(async () => (await diagnostics(page)).buildings[0].inventory.wood).toBe(12);
+  await page.screenshot({ path: testInfo.outputPath('storage-portrait.png') });
+  await page.setViewportSize({ width: 915, height: 412 });
+  await page.getByLabel('Take Wood quantity', { exact: true }).fill('3');
+  await page.getByRole('button', { name: 'Take Wood', exact: true }).tap();
+  await expect.poll(async () => (await diagnostics(page)).buildings[0].inventory.wood).toBe(9);
+  await page.screenshot({ path: testInfo.outputPath('storage-landscape.png') });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole('button', { name: 'Close panel' }).tap();
+  await page.getByRole('button', { name: 'Map', exact: true }).tap();
+  await expect(page.locator('.site-card')).toHaveCount(6);
+  await page.getByRole('button', { name: /Abandoned depot.*Track destination/ }).tap();
+  await page.getByRole('button', { name: 'Equip Field bow', exact: true }).tap();
+  await expect(page.locator('#weapon-status')).toContainText('6');
+  await page.screenshot({ path: testInfo.outputPath('tracked-landscape.png') });
+  await page.setViewportSize({ width: 412, height: 915 });
+  for (const [label, obstacle] of [
+    ['#weapon-status', '.touch-actions'],
+    ['#destination', '#journal'],
+  ]) {
+    const a = (await page.locator(label).boundingBox())!,
+      b = (await page.locator(obstacle).boundingBox())!;
+    expect(
+      a.x + a.width <= b.x ||
+        b.x + b.width <= a.x ||
+        a.y + a.height <= b.y ||
+        b.y + b.height <= a.y,
+      `${label} overlaps ${obstacle}`,
+    ).toBe(true);
+  }
+  await expect(page.locator('#toast')).toBeHidden();
+  await page.screenshot({ path: testInfo.outputPath('tracked-portrait.png') });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('touch players drop and collect stacks with usable portrait and landscape panels', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error' || /GL_INVALID|WebGL:/.test(message.text()))
+      errors.push(message.text());
+  });
+  await startSolo(page, 'mobile');
+  await page.getByRole('button', { name: 'Pack and crafting', exact: true }).tap();
+  await page.getByRole('button', { name: 'Manage Wild berries', exact: true }).tap();
+  await page.getByLabel('Quantity to drop').fill('1');
+  await page.screenshot({ path: testInfo.outputPath('drop-portrait.png') });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole('button', { name: 'Drop supplies', exact: false }).tap();
+  await expect.poll(async () => (await diagnostics(page)).bags.length).toBe(1);
+  await page.getByRole('button', { name: 'Close panel' }).tap();
+  const bag = (await diagnostics(page)).bags[0];
+  await touchAimAt(page, bag.x, bag.y + 0.3, bag.z);
+  await expect.poll(async () => (await diagnostics(page)).target).toBe(bag.id);
+  await expect.poll(async () => (await diagnostics(page)).player.cooldown).toBe(0);
+  await page.getByRole('button', { name: 'Gather or place' }).tap();
+  await expect(page.getByRole('heading', { name: 'Ground supplies', exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('pickup-portrait.png') });
+  await page.setViewportSize({ width: 915, height: 412 });
+  await page.screenshot({ path: testInfo.outputPath('pickup-landscape.png') });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole('button', { name: 'Take all that fits', exact: false }).tap();
+  await expect.poll(async () => (await diagnostics(page)).player.inventory.berries).toBe(3);
+  await expect.poll(async () => (await diagnostics(page)).bags.length).toBe(0);
+  expect(errors).toEqual([]);
+});
 
 test('terrain tools excavate through touch controls and developer brushes fit both orientations', async ({
   page,
@@ -29,6 +149,7 @@ test('terrain tools excavate through touch controls and developer brushes fit bo
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await expect.poll(async () => (await diagnostics(page)).player.pitch).toBeLessThan(-0.3);
   await page.getByRole('button', { name: 'Terrain tools', exact: true }).tap();
+  await expect.poll(async () => (await diagnostics(page)).panel).toBe('terrain');
   await page.screenshot({ path: testInfo.outputPath('terrain-tools-portrait.png') });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'Dig terrain', exact: false }).tap();

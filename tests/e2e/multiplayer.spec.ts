@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startWorldServer } from '../../server/app';
 import { testOrigins } from './server-options';
-import { aimAt, diagnostics, gather, walkTo } from './helpers';
+import { aimAt, diagnostics, gather, waitForMovementStop, walkTo } from './helpers';
 
 // DOM trace snapshots are awaited before input dispatch. Across five software
 // WebGL contexts that delays key releases; keep action/source traces
@@ -155,6 +155,7 @@ test('four survivors play in one world, share a camp and invite, and free a full
         } finally {
           await page.keyboard.up('KeyS');
         }
+        await waitForMovementStop(page);
       }),
     );
     for (const page of active) {

@@ -196,6 +196,7 @@ describe('wildlife habitats and behavior', () => {
     const sim = fixture(),
       p = sim.state.players.local;
     p.equipped = 'hatchet';
+    p.inventory.hatchet = 1;
     sim.state.animals = [animalAt(world, 'rabbit', 'rabbit', 0, 84)];
     expect(sim.command('local', { type: 'interact', target: 'rabbit' }).ok).toBe(true);
     expect(sim.state.bags[0].inventory).toEqual(WILDLIFE.rabbit.loot);
@@ -246,10 +247,13 @@ describe('developer boundaries and persistence', () => {
     current.version = 1;
     current.state.version = 1;
     delete current.state.terrain;
+    delete current.state.sites;
     delete current.state.environment;
     delete current.state.tuning;
     delete current.state.sandbox;
     for (const p of Object.values(current.state.players) as Record<string, unknown>[]) {
+      delete p.worn;
+      delete p.quickSlots;
       delete p.dev;
       delete p.oxygen;
       delete (p.input as Record<string, unknown>).dive;
@@ -263,8 +267,8 @@ describe('developer boundaries and persistence', () => {
     }
     current.state.resources['starter-tree'] = { health: 0, respawnAt: 1200 };
     const migrated = parseSave(JSON.stringify(current));
-    expect(migrated.version).toBe(3);
-    expect(migrated.state.version).toBe(3);
+    expect(migrated.version).toBe(4);
+    expect(migrated.state.version).toBe(4);
     expect(migrated.state.worldVersion).toBe(current.state.worldVersion);
     expect(migrated.state.time).toBe(current.state.time);
     expect(migrated.state.resources).toEqual(current.state.resources);

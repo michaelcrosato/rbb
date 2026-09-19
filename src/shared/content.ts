@@ -7,7 +7,162 @@ export interface ItemDefinition {
   icon: string;
   color: string;
 }
+const item = (
+  name: string,
+  description: string,
+  weight: number,
+  icon: string,
+  color: string,
+): ItemDefinition => ({ name, description, weight, icon, color });
 export const ITEMS = {
+  ironOre: item(
+    'Iron ore',
+    'Smelt with charcoal in a furnace to make metal.',
+    0.15,
+    'stone',
+    '#a67c62',
+  ),
+  sulfurOre: item(
+    'Sulfur',
+    'A quarry mineral used in ammunition at a workbench.',
+    0.1,
+    'stone',
+    '#d4c473',
+  ),
+  metal: item(
+    'Metal ingot',
+    'Smelted iron for stronger tools, equipment and bases.',
+    0.2,
+    'stone',
+    '#abbcc1',
+  ),
+  charcoal: item(
+    'Charcoal',
+    'Burn timber in a furnace. Fuel for smelting and ammunition.',
+    0.05,
+    'rock',
+    '#677572',
+  ),
+  gunpowder: item('Powder', 'A workshop material for cartridges.', 0.03, 'bag', '#8a9382'),
+  scrap: item(
+    'Salvage scrap',
+    'Recovered at landmarks. Recycle it or use it in a workshop.',
+    0.1,
+    'stone',
+    '#aa896b',
+  ),
+  parts: item(
+    'Machine parts',
+    'Recovered mechanisms for firearms and advanced equipment.',
+    0.25,
+    'settings',
+    '#bec9c7',
+  ),
+  cloth: item(
+    'Woven cloth',
+    'Weave plant fiber for packs, clothing and provisions.',
+    0.05,
+    'fiber',
+    '#d6c6a0',
+  ),
+  leather: item(
+    'Hide',
+    'Recovered from land wildlife. Useful for protective equipment.',
+    0.1,
+    'meat',
+    '#b68d63',
+  ),
+  reinforcedPlate: item(
+    'Reinforcement plate',
+    'Forge metal and scrap into durable base reinforcement.',
+    0.3,
+    'wall',
+    '#a9bdc1',
+  ),
+  ironHatchet: item(
+    'Iron hatchet',
+    'Harvest five hits of timber at once; stronger in close combat.',
+    1.8,
+    'hatchet',
+    '#b6d5dc',
+  ),
+  ironPickaxe: item(
+    'Iron pickaxe',
+    'Extract rich veins five hits at a time. Also excavates terrain.',
+    2.2,
+    'pickaxe',
+    '#b6d5dc',
+  ),
+  spear: item(
+    'Hunting spear',
+    'A long-reaching melee weapon for wildlife.',
+    1.5,
+    'spear',
+    '#d7bd87',
+  ),
+  bow: item(
+    'Field bow',
+    'A quiet ranged hunting weapon. Uses arrows from your pack.',
+    1.2,
+    'bow',
+    '#bf9966',
+  ),
+  arrow: item(
+    'Arrows',
+    'Ammunition for the field bow. Crafted in bundles of six.',
+    0.04,
+    'arrow',
+    '#c6d2b1',
+  ),
+  scrapPistol: item(
+    'Salvage pistol',
+    'A compact hunting firearm. Uses cartridges from your pack.',
+    2,
+    'pistol',
+    '#b2c5c8',
+  ),
+  huntingRifle: item(
+    'Hunting rifle',
+    'A powerful, slower firing weapon for distant wildlife. Uses cartridges.',
+    3.5,
+    'rifle',
+    '#acb9ab',
+  ),
+  cartridge: item(
+    'Cartridges',
+    'Workshop ammunition for the pistol and rifle.',
+    0.05,
+    'ammo',
+    '#d4b678',
+  ),
+  armor: item(
+    'Hide vest',
+    'Wear to reduce wildlife damage by 35%. Remains part of your pack.',
+    3,
+    'armor',
+    '#b79f74',
+  ),
+  backpack: item(
+    'Trail pack',
+    'Wear to carry 90 kg instead of 60 kg. Remains part of your inventory.',
+    1.5,
+    'bag',
+    '#a9bb88',
+  ),
+  waterskin: item(
+    'Filled waterskin',
+    'A crafted ration of water. Restores 60 water when used.',
+    0.6,
+    'bag',
+    '#adcae0',
+  ),
+  ration: item(
+    'Trail ration',
+    'Wrapped meat and berries. Restores 65 food, 15 water and 12 health.',
+    0.35,
+    'meat',
+    '#cfb27e',
+  ),
   dirt: {
     name: 'Excavated dirt',
     description: 'Fill material from digging. Use Terrain tools to deposit it or level ground.',
@@ -101,6 +256,8 @@ export const CONSUMABLES: Partial<Record<ItemId, ConsumableEffect>> = {
   berries: { hunger: 16, thirst: 10 },
   cookedMeat: { hunger: 40, health: 8 },
   bandage: { health: 30 },
+  waterskin: { thirst: 60 },
+  ration: { hunger: 65, thirst: 15, health: 12 },
 };
 export const isConsumable = (id: ItemId): boolean => CONSUMABLES[id] !== undefined;
 
@@ -111,8 +268,155 @@ export interface RecipeDefinition {
   description: string;
   /** Building that must stand within 5 m of the crafter. */
   station?: BuildingKind;
+  category?: 'Materials' | 'Tools' | 'Weapons' | 'Equipment' | 'Provisions';
 }
 export const RECIPES = {
+  cloth: {
+    name: 'Woven cloth',
+    cost: { fiber: 8 },
+    output: { cloth: 2 },
+    description: 'Weave flexible supplies for equipment.',
+    category: 'Materials',
+  },
+  charcoal: {
+    name: 'Charcoal',
+    cost: { wood: 8 },
+    output: { charcoal: 4 },
+    description: 'Convert timber into furnace fuel.',
+    station: 'furnace',
+    category: 'Materials',
+  },
+  metal: {
+    name: 'Smelt iron',
+    cost: { ironOre: 4, charcoal: 2 },
+    output: { metal: 2 },
+    description: 'Process ore into metal ingots.',
+    station: 'furnace',
+    category: 'Materials',
+  },
+  recycleMetal: {
+    name: 'Recycle scrap',
+    cost: { scrap: 4, charcoal: 1 },
+    output: { metal: 2 },
+    description: 'Salvage an alternative source of metal.',
+    station: 'furnace',
+    category: 'Materials',
+  },
+  gunpowder: {
+    name: 'Powder',
+    cost: { sulfurOre: 2, charcoal: 3 },
+    output: { gunpowder: 4 },
+    description: 'A material for workshop ammunition.',
+    station: 'workbench',
+    category: 'Materials',
+  },
+  reinforcedPlate: {
+    name: 'Reinforcement plates',
+    cost: { metal: 4, scrap: 2 },
+    output: { reinforcedPlate: 2 },
+    description: 'Upgrade stone structures to reinforced metal.',
+    station: 'workbench',
+    category: 'Materials',
+  },
+  parts: {
+    name: 'Machine parts',
+    cost: { metal: 6, scrap: 8 },
+    output: { parts: 1 },
+    description: 'Turn salvaged metal into mechanisms.',
+    station: 'workbench',
+    category: 'Materials',
+  },
+  ironHatchet: {
+    name: 'Iron hatchet',
+    cost: { wood: 12, metal: 6, cloth: 2 },
+    output: { ironHatchet: 1 },
+    description: 'Harvest five hits of timber at a time.',
+    station: 'workbench',
+    category: 'Tools',
+  },
+  ironPickaxe: {
+    name: 'Iron pickaxe',
+    cost: { wood: 12, metal: 8, cloth: 2 },
+    output: { ironPickaxe: 1 },
+    description: 'Harvest five hits from mineral veins at a time.',
+    station: 'workbench',
+    category: 'Tools',
+  },
+  spear: {
+    name: 'Hunting spear',
+    cost: { wood: 16, stone: 8, fiber: 4 },
+    output: { spear: 1 },
+    description: 'A longer reach for hunting wildlife.',
+    category: 'Weapons',
+  },
+  bow: {
+    name: 'Field bow',
+    cost: { wood: 20, fiber: 16, cloth: 2 },
+    output: { bow: 1 },
+    description: 'Hunt at range with arrows.',
+    category: 'Weapons',
+  },
+  arrow: {
+    name: 'Arrows ×6',
+    cost: { wood: 4, stone: 3, fiber: 2 },
+    output: { arrow: 6 },
+    description: 'Ammunition for the field bow.',
+    category: 'Weapons',
+  },
+  scrapPistol: {
+    name: 'Salvage pistol',
+    cost: { metal: 12, scrap: 12, parts: 2, wood: 6 },
+    output: { scrapPistol: 1 },
+    description: 'A compact firearm for wildlife hunting.',
+    station: 'workbench',
+    category: 'Weapons',
+  },
+  huntingRifle: {
+    name: 'Hunting rifle',
+    cost: { metal: 20, reinforcedPlate: 4, parts: 4, wood: 16 },
+    output: { huntingRifle: 1 },
+    description: 'Longer range, greater power and a slower shot.',
+    station: 'workbench',
+    category: 'Weapons',
+  },
+  cartridge: {
+    name: 'Cartridges ×6',
+    cost: { metal: 2, gunpowder: 3 },
+    output: { cartridge: 6 },
+    description: 'Ammunition shared by both firearms.',
+    station: 'workbench',
+    category: 'Weapons',
+  },
+  armor: {
+    name: 'Hide vest',
+    cost: { leather: 8, cloth: 6, fiber: 10 },
+    output: { armor: 1 },
+    description: 'Wear to reduce wildlife damage by 35%.',
+    station: 'workbench',
+    category: 'Equipment',
+  },
+  backpack: {
+    name: 'Trail pack',
+    cost: { cloth: 8, leather: 4, fiber: 10 },
+    output: { backpack: 1 },
+    description: 'Wear to increase carrying capacity to 90 kg.',
+    category: 'Equipment',
+  },
+  waterskin: {
+    name: 'Filled waterskin',
+    cost: { leather: 2, fiber: 4, berries: 3 },
+    output: { waterskin: 1 },
+    description: 'Store berry water for a long expedition. Restores 60 water.',
+    category: 'Provisions',
+  },
+  ration: {
+    name: 'Trail ration',
+    cost: { cookedMeat: 1, berries: 3, cloth: 1 },
+    output: { ration: 1 },
+    description: 'A sustaining meal for the road.',
+    station: 'campfire',
+    category: 'Provisions',
+  },
   hatchet: {
     name: 'Stone hatchet',
     cost: { wood: 12, stone: 8, fiber: 3 },
@@ -147,8 +451,88 @@ export interface BuildingDefinition {
   cost: Inventory;
   description: string;
   icon: string;
+  category?: 'Shelter' | 'Camp';
 }
 export const BUILDINGS = {
+  doorway: {
+    name: 'Doorway',
+    cost: { wood: 14, fiber: 4 },
+    description: 'A foundation-edge frame with an open passage.',
+    icon: 'wall',
+    category: 'Shelter',
+  },
+  door: {
+    name: 'Timber door',
+    cost: { wood: 12, scrap: 2 },
+    description: 'Fits an empty doorway. Aim and use to open or close.',
+    icon: 'wall',
+    category: 'Shelter',
+  },
+  window: {
+    name: 'Window wall',
+    cost: { wood: 14, fiber: 4 },
+    description: 'A foundation-edge wall with a lookout opening.',
+    icon: 'wall',
+    category: 'Shelter',
+  },
+  floor: {
+    name: 'Upper floor',
+    cost: { wood: 20, fiber: 6 },
+    description: 'A 4 × 4 m ceiling, supported by a wall on the storey below.',
+    icon: 'foundation',
+    category: 'Shelter',
+  },
+  stairwell: {
+    name: 'Stairwell floor',
+    cost: { wood: 18, fiber: 6 },
+    description:
+      'An upper floor with a central stair opening and a north landing. Rotate with the stairs.',
+    icon: 'foundation',
+    category: 'Shelter',
+  },
+  roof: {
+    name: 'Shelter roof',
+    cost: { wood: 18, fiber: 10 },
+    description: 'A solid roof with raised edges over a supported room.',
+    icon: 'foundation',
+    category: 'Shelter',
+  },
+  stairs: {
+    name: 'Timber stairs',
+    cost: { wood: 20, fiber: 4 },
+    description:
+      'Climb 3 metres from a foundation or upper floor. Rotate for the ascent direction.',
+    icon: 'foundation',
+    category: 'Shelter',
+  },
+  fence: {
+    name: 'Palisade fence',
+    cost: { wood: 12, fiber: 2 },
+    description: 'A freestanding 4 metre barrier for the edge of camp.',
+    icon: 'wall',
+    category: 'Shelter',
+  },
+  storage: {
+    name: 'Supply chest',
+    cost: { wood: 20, scrap: 4 },
+    description: 'Shared storage for up to 240 kg. Aim and use to transfer supplies.',
+    icon: 'bag',
+    category: 'Camp',
+  },
+  workbench: {
+    name: 'Workbench',
+    cost: { wood: 28, stone: 12, scrap: 6 },
+    description: 'Craft advanced tools, equipment, firearms and reinforcement within 5 metres.',
+    icon: 'hatchet',
+    category: 'Camp',
+  },
+  furnace: {
+    name: 'Stone furnace',
+    cost: { stone: 40, wood: 16 },
+    description: 'Process charcoal and metal within 5 metres.',
+    icon: 'fire',
+    category: 'Camp',
+  },
   foundation: {
     name: 'Timber foundation',
     cost: { wood: 24, stone: 12 },
@@ -190,6 +574,33 @@ export interface ResourceDefinition {
   respawn: number;
 }
 export const RESOURCE_TYPES = {
+  quarryStone: {
+    name: 'Rich stone vein',
+    health: 36,
+    item: 'stone',
+    yield: 8,
+    radius: 1.2,
+    tool: 'pickaxe',
+    respawn: 900,
+  },
+  iron: {
+    name: 'Iron vein',
+    health: 24,
+    item: 'ironOre',
+    yield: 4,
+    radius: 1.1,
+    tool: 'pickaxe',
+    respawn: 1200,
+  },
+  sulfur: {
+    name: 'Sulfur vein',
+    health: 18,
+    item: 'sulfurOre',
+    yield: 3,
+    radius: 1,
+    tool: 'pickaxe',
+    respawn: 1200,
+  },
   tree: {
     name: 'Coastal pine',
     health: 6,
@@ -238,6 +649,136 @@ export const RESOURCE_TYPES = {
 } as const satisfies Record<string, ResourceDefinition>;
 export type ResourceKind = keyof typeof RESOURCE_TYPES;
 
+export const TOOLS: Partial<Record<ItemId, { family: 'hatchet' | 'pickaxe'; hits: number }>> = {
+  hatchet: { family: 'hatchet', hits: 3 },
+  pickaxe: { family: 'pickaxe', hits: 3 },
+  ironHatchet: { family: 'hatchet', hits: 5 },
+  ironPickaxe: { family: 'pickaxe', hits: 5 },
+};
+export interface WeaponDefinition {
+  damage: number;
+  range: number;
+  cooldown: number;
+  ammo?: ItemId;
+}
+export const WEAPONS: Partial<Record<ItemId, WeaponDefinition>> = {
+  rock: { damage: 15, range: 3.8, cooldown: 0.6 },
+  hatchet: { damage: 30, range: 3.8, cooldown: 0.6 },
+  pickaxe: { damage: 15, range: 3.8, cooldown: 0.6 },
+  ironHatchet: { damage: 36, range: 3.8, cooldown: 0.6 },
+  ironPickaxe: { damage: 26, range: 3.8, cooldown: 0.8 },
+  spear: { damage: 32, range: 5, cooldown: 0.75 },
+  bow: { damage: 36, range: 35, cooldown: 0.9, ammo: 'arrow' },
+  scrapPistol: { damage: 32, range: 28, cooldown: 0.5, ammo: 'cartridge' },
+  huntingRifle: { damage: 75, range: 65, cooldown: 1.4, ammo: 'cartridge' },
+};
+export const EQUIPMENT: Partial<
+  Record<ItemId, { slot: 'armor' | 'backpack'; capacity?: number; resistance?: number }>
+> = {
+  armor: { slot: 'armor', resistance: 0.35 },
+  backpack: { slot: 'backpack', capacity: 30 },
+};
+export const STRUCTURE_GRADES = {
+  timber: {
+    name: 'Timber',
+    health: 180,
+    resistance: 0,
+    cost: {},
+    repair: { wood: 4 },
+    color: '#98724c',
+  },
+  stone: {
+    name: 'Stone',
+    health: 450,
+    resistance: 0.2,
+    cost: { stone: 36, wood: 4 },
+    repair: { stone: 5 },
+    color: '#a7b4af',
+  },
+  metal: {
+    name: 'Reinforced metal',
+    health: 900,
+    resistance: 0.45,
+    cost: { reinforcedPlate: 6, metal: 6 },
+    repair: { metal: 3 },
+    color: '#829ea4',
+  },
+} as const satisfies Record<
+  string,
+  {
+    name: string;
+    health: number;
+    resistance: number;
+    cost: Inventory;
+    repair: Inventory;
+    color: string;
+  }
+>;
+export type StructureGrade = keyof typeof STRUCTURE_GRADES;
+export const GRADE_IDS = Object.keys(STRUCTURE_GRADES) as StructureGrade[];
+export const SITE_TYPES = {
+  camp: {
+    name: 'Wayfarer camp',
+    description: 'Cloth, provisions and trail supplies.',
+    color: '#cfbb83',
+    restock: 1200,
+    loot: { cloth: [3, 6], berries: [5, 10], leather: [2, 4], bandage: [1, 2], scrap: [4, 8] },
+  },
+  depot: {
+    name: 'Abandoned depot',
+    description: 'Salvage scrap, machine parts and workshop materials.',
+    color: '#d2926e',
+    restock: 1800,
+    loot: { scrap: [12, 22], parts: [1, 3], metal: [3, 6], cloth: [1, 3] },
+  },
+  lookout: {
+    name: 'Old lookout',
+    description: 'Hunting provisions and recovered equipment.',
+    color: '#a8c3cf',
+    restock: 1800,
+    loot: {
+      scrap: [6, 12],
+      parts: [1, 2],
+      arrow: [6, 12],
+      cartridge: [3, 6],
+      leather: [2, 4],
+      bandage: [1, 3],
+    },
+  },
+  stoneQuarry: {
+    name: 'Stone quarry',
+    description: 'Rich stone and iron for an expanding camp.',
+    color: '#c4c8b8',
+    restock: 0,
+    loot: {},
+  },
+  ironQuarry: {
+    name: 'Iron quarry',
+    description: 'Abundant ore for furnaces and strong tools.',
+    color: '#bc9173',
+    restock: 0,
+    loot: {},
+  },
+  sulfurQuarry: {
+    name: 'Sulfur quarry',
+    description: 'Sulfur and stone for workshop supplies.',
+    color: '#d4c572',
+    restock: 0,
+    loot: {},
+  },
+} as const satisfies Record<
+  string,
+  {
+    name: string;
+    description: string;
+    color: string;
+    restock: number;
+    loot: Partial<Record<ItemId, readonly [number, number]>>;
+  }
+>;
+export type SiteKind = keyof typeof SITE_TYPES;
+export const SITE_IDS = Object.keys(SITE_TYPES) as SiteKind[];
+
 export const MILESTONES = [
   {
     id: 'gather',
@@ -285,6 +826,13 @@ export const BALANCE = {
   maxBuildings: 512,
   maxPlayers: 4,
   maxSurvivors: 512,
+  maxBags: 2048,
+  droppedItemLifetime: 900,
+  dropDistance: 1.25,
+  storageCapacity: 240,
+  craftBatchLimit: 20,
+  maxStoreys: 4,
+  repairFraction: 0.25,
 } as const;
 
 export const SPECIES_IDS = [
@@ -319,7 +867,7 @@ export const WILDLIFE: Record<Species, SpeciesDefinition> = {
     damage: 12,
     count: 8,
     radius: 0.65,
-    loot: { meat: 3, fiber: 2 },
+    loot: { meat: 3, fiber: 2, leather: 3 },
   },
   deer: {
     name: 'Fallow deer',
@@ -330,7 +878,7 @@ export const WILDLIFE: Record<Species, SpeciesDefinition> = {
     damage: 0,
     count: 10,
     radius: 0.7,
-    loot: { meat: 4, fiber: 3 },
+    loot: { meat: 4, fiber: 3, leather: 4 },
   },
   wolf: {
     name: 'Grey wolf',
@@ -341,7 +889,7 @@ export const WILDLIFE: Record<Species, SpeciesDefinition> = {
     damage: 16,
     count: 4,
     radius: 0.6,
-    loot: { meat: 2, fiber: 3 },
+    loot: { meat: 2, fiber: 3, leather: 3 },
   },
   fox: {
     name: 'Red fox',
@@ -352,7 +900,7 @@ export const WILDLIFE: Record<Species, SpeciesDefinition> = {
     damage: 0,
     count: 6,
     radius: 0.4,
-    loot: { meat: 1, fiber: 2 },
+    loot: { meat: 1, fiber: 2, leather: 2 },
   },
   rabbit: {
     name: 'Meadow rabbit',

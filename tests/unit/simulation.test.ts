@@ -1,3 +1,5 @@
+import { createBuilding } from '../../src/shared/state';
+import type { Building, BuildingPlacement } from '../../src/shared/state';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { BALANCE, BUILDINGS } from '../../src/shared/content';
 import { buildCandidate, validateBuild } from '../../src/shared/building';
@@ -27,6 +29,9 @@ beforeEach(() => {
   sim = new Simulation(world, createState(world));
   p = sim.addPlayer('test', 'Tester');
 });
+
+const building = (b: BuildingPlacement & Pick<Building, 'id' | 'owner'>): Building =>
+  createBuilding(b, b.id, b.owner);
 
 describe('gather, craft, survive, build', () => {
   it('plays the core progression loop with real command transactions', () => {
@@ -100,15 +105,17 @@ describe('gather, craft, survive, build', () => {
   it('requires a campfire for cooking and a spring for fresh water', () => {
     p.inventory = { meat: 1, wood: 2 };
     expect(sim.command(p.id, { type: 'craft', recipe: 'cookedMeat' }).ok).toBe(false);
-    sim.state.buildings.push({
-      id: 'b1',
-      kind: 'campfire',
-      owner: p.id,
-      x: 0,
-      z: 89,
-      y: 8,
-      rotation: 0,
-    });
+    sim.state.buildings.push(
+      building({
+        id: 'b1',
+        kind: 'campfire',
+        owner: p.id,
+        x: 0,
+        z: 89,
+        y: 8,
+        rotation: 0,
+      }),
+    );
     expect(sim.command(p.id, { type: 'craft', recipe: 'cookedMeat' }).ok).toBe(true);
     face('starter-spring');
     p.thirst = 10;
@@ -172,15 +179,17 @@ describe('gather, craft, survive, build', () => {
   });
   it('heals beside a campfire only while fed and watered', () => {
     p.position = { x: 0, y: 8, z: 94 };
-    sim.state.buildings.push({
-      id: 'b1',
-      kind: 'campfire',
-      owner: p.id,
-      x: 0,
-      z: 96,
-      y: 8,
-      rotation: 0,
-    });
+    sim.state.buildings.push(
+      building({
+        id: 'b1',
+        kind: 'campfire',
+        owner: p.id,
+        x: 0,
+        z: 96,
+        y: 8,
+        rotation: 0,
+      }),
+    );
     p.health = 50;
     p.hunger = 20;
     advance(5);
@@ -193,15 +202,17 @@ describe('gather, craft, survive, build', () => {
     p.inventory = { wood: 200, stone: 100 };
     p.position = { x: 0, y: 8, z: 94 };
     for (let i = sim.state.buildings.length; i < BALANCE.maxBuildings; i++)
-      sim.state.buildings.push({
-        id: `b${sim.state.nextId++}`,
-        kind: 'campfire',
-        owner: p.id,
-        x: 200 + (i % 50) * 2,
-        y: 8,
-        z: 200 + Math.floor(i / 50) * 2,
-        rotation: 0,
-      });
+      sim.state.buildings.push(
+        building({
+          id: `b${sim.state.nextId++}`,
+          kind: 'campfire',
+          owner: p.id,
+          x: 200 + (i % 50) * 2,
+          y: 8,
+          z: 200 + Math.floor(i / 50) * 2,
+          rotation: 0,
+        }),
+      );
     expect(() => parseState(structuredClone(sim.state))).not.toThrow();
     expect(
       sim.command(p.id, { type: 'build', kind: 'foundation', x: 0, z: 100, rotation: 0 }).message,
@@ -234,15 +245,17 @@ describe('movement, combat and bounded simulation', () => {
   it('collides with trunks, rocks and constructed walls', () => {
     expect(blocked(sim.state, world, -3.5, 79, 8)).toBe(true);
     expect(blocked(sim.state, world, 5, 80, 8)).toBe(true);
-    sim.state.buildings.push({
-      id: 'b1',
-      kind: 'wall',
-      owner: p.id,
-      x: 0,
-      z: 92,
-      y: 8,
-      rotation: 0,
-    });
+    sim.state.buildings.push(
+      building({
+        id: 'b1',
+        kind: 'wall',
+        owner: p.id,
+        x: 0,
+        z: 92,
+        y: 8,
+        rotation: 0,
+      }),
+    );
     p.position = { x: 0, y: 8, z: 94 };
     sim.command(p.id, { type: 'move', input: { ...idleInput(), forward: 1 } });
     advance(2);

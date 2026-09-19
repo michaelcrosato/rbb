@@ -54,6 +54,18 @@ Player-hosted browser sessions, automatic relays/server discovery, reserved reco
 
 [Terrain architecture, controls and limits](terrain.md). Subsequent terrain extensions include separate materials, flowing water and sealed water volumes, structural collapse if desired, larger-world streaming, and more complete underground weather/lighting isolation.
 
+## Frontier progression expansion
+
+- [x] Chosen-quantity ground drops, partial pickup, cooperative sharing and restart-safe item accounting.
+- [x] Three map-tracked salvage landmarks with deterministic shared loot and persistent restock cycles.
+- [x] Stone, iron and sulfur quarries with six rich nodes each and improved gathering tools.
+- [x] Timber/stone/metal structure grades, repair, wildlife damage, support collapse and protected storage recovery.
+- [x] Doorways, working doors, windows, upper floors, stairwell floors, roofs, stairs, fences, shared chests, workbenches and furnaces.
+- [x] 33 items and 23 recipes, batches and station checks, hunting weapons/ammunition, worn vest/pack and configurable quick slots.
+- [x] Save v4 migration and protocol 4, modular shared systems, authoritative server coverage and desktop/touch gameplay journeys.
+
+[Controls, module ownership and bounds](progression-expansion.md). Storage permissions, queued crafting, weapon/tool wear, magazine/reload mechanics, projectile ballistics, more landmark layouts and human balance testing remain follow-up work. Published revisions are tracked in GitHub deployments; see [QA](qa.md) for verification evidence.
+
 ## Engineering follow-ups from the 2026-09-14 audit
 
 Verified by reading the code, deferred because each needs browser or hardware evidence before it is clearly worth its risk:
@@ -68,4 +80,4 @@ Verified by reading the code, deferred because each needs browser or hardware ev
 
 ## Subsequent iterations
 
-Human QA should set priorities after this foundation. Candidate systems: modular building interiors/doors, storage permissions, dedicated-server accounts, PvP and combat balance, tool durability, technology trees, farming, cooking queues, temperature/weather gameplay, more complex animal ecology, spatial interest management, client prediction/reconciliation, world sharding and moderation. Hardware ray tracing can wait for measured need and mature examples.
+Human QA should set priorities after this foundation. Candidate systems: additional building shapes and interiors, storage permissions, dedicated-server accounts, PvP and combat balance, tool durability, technology trees, farming, cooking queues, temperature/weather gameplay, more complex animal ecology, spatial interest management, client prediction/reconciliation, world sharding and moderation. Hardware ray tracing can wait for measured need and mature examples.

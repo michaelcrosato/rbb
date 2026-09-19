@@ -4,6 +4,9 @@ import { resourceIsActive } from './state';
 import type { GameState, PlayerState, Building } from './state';
 import { nearbyResources, WORLD_HALF } from './world';
 import type { WorldDefinition } from './world';
+import { structureSolids } from './structure-geometry';
+import { siteSolids } from './site-generation';
+import { bodyIntersects, containsXZ, raySolid } from './spatial';
 import {
   terrainBodyClear,
   terrainCeiling,
@@ -29,15 +32,11 @@ export function groundHeight(
   below: number = TERRAIN.maxY,
 ): number {
   let height = terrainFloor(state.terrain, world, x, z, below);
-  for (const b of state.buildings) {
-    if (
-      b.kind === 'foundation' &&
-      b.y <= below + 0.001 &&
-      Math.abs(x - b.x) <= 2.15 &&
-      Math.abs(z - b.z) <= 2.15
-    )
-      height = Math.max(height, b.y);
-  }
+  for (const b of state.buildings.filter((b) => Math.abs(x - b.x) < 2.4 && Math.abs(z - b.z) < 2.4))
+    for (const solid of structureSolids(b)) {
+      const top = solid.y + solid.height / 2;
+      if (top <= below + 0.001 && containsXZ(solid, x, z)) height = Math.max(height, top);
+    }
   return height;
 }
 
@@ -61,14 +60,18 @@ export function blocked(
   }
   return (
     !terrainBodyClear(state.terrain, world, x, feet, z) ||
-    state.buildings.some((b) =>
-      b.kind === 'wall'
-        ? feet < b.y + 3 && feet + 1.7 > b.y && wallContains(b, x, z)
-        : b.kind === 'foundation' &&
-          feet < b.y - 0.01 &&
-          feet + 1.7 > b.y - 0.3 &&
-          Math.abs(x - b.x) < 2.33 &&
-          Math.abs(z - b.z) < 2.33,
+    state.buildings.some(
+      (b) =>
+        Math.abs(x - b.x) < 2.4 &&
+        Math.abs(z - b.z) < 2.4 &&
+        structureSolids(b).some((s) => bodyIntersects(s, x, feet, z)),
+    ) ||
+    world.sites.some(
+      (site) =>
+        Math.abs(site.x - x) < 4 &&
+        Math.abs(site.z - z) < 4 &&
+        !state.sites[site.id]?.disabled &&
+        siteSolids(site).some((s) => bodyIntersects(s, x, feet, z)),
     )
   );
 }
@@ -80,6 +83,7 @@ export function lineOfSight(
   y: number,
   z: number,
   world: WorldDefinition,
+  ignoreId?: string,
 ): boolean {
   const origin = {
     x: player.position.x,
@@ -97,24 +101,29 @@ export function lineOfSight(
     )
   )
     return false;
-  for (let t = 0.1; t < 1; t += 0.1) {
-    const px = player.position.x + (x - player.position.x) * t;
-    const pz = player.position.z + (z - player.position.z) * t;
-    const py =
-      player.position.y + BALANCE.eyeHeight + (y - player.position.y - BALANCE.eyeHeight) * t;
-    if (
-      state.buildings.some((b) =>
-        b.kind === 'wall'
-          ? py > b.y && py < b.y + 3 && wallContains(b, px, pz, 0)
-          : b.kind === 'foundation' &&
-            py < b.y &&
-            py > b.y - 0.3 &&
-            Math.abs(px - b.x) < 2 &&
-            Math.abs(pz - b.z) < 2,
-      )
+  const length = Math.hypot(direction.x, direction.y, direction.z);
+  if (length < 0.12) return true;
+  const ray = { x: direction.x / length, y: direction.y / length, z: direction.z / length };
+  if (
+    state.buildings.some(
+      (b) =>
+        b.id !== ignoreId &&
+        structureSolids(b).some((s) => raySolid(origin, ray, s, length - 0.12) !== null),
     )
-      return false;
-  }
+  )
+    return false;
+  if (
+    world.sites.some(
+      (site) =>
+        !state.sites[site.id]?.disabled &&
+        siteSolids(site).some(
+          (s) =>
+            !(site.id === ignoreId && s.role === 'crate') &&
+            raySolid(origin, ray, s, length - 0.12) !== null,
+        ),
+    )
+  )
+    return false;
   return true;
 }
 
@@ -227,13 +236,12 @@ export function stepPlayer(
       ),
     );
   for (const b of state.buildings)
-    if (
-      b.kind === 'foundation' &&
-      b.y - 0.3 > p.position.y + 0.1 &&
-      Math.abs(p.position.x - b.x) < 2.33 &&
-      Math.abs(p.position.z - b.z) < 2.33
-    )
-      ceiling = Math.min(ceiling, b.y - 0.3);
+    for (const s of structureSolids(b))
+      if (
+        s.y - s.height / 2 > p.position.y + 0.1 &&
+        containsXZ(s, p.position.x, p.position.z, 0.33)
+      )
+        ceiling = Math.min(ceiling, s.y - s.height / 2);
   p.velocityY -= BALANCE.gravity * state.tuning.gravity * dt;
   p.position.y += p.velocityY * dt;
   if (p.velocityY > 0 && p.position.y + 1.7 > ceiling) {
