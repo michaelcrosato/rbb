@@ -10,6 +10,12 @@ import { startWorldServer } from '../../server/app';
 import { gather } from './helpers';
 import { testOrigins } from './server-options';
 
+// DOM trace copies delay real input dispatch on software WebGL. Keep action and
+// source traces plus explicit scene/failure images, as in the multiplayer suite.
+test.use({
+  trace: { mode: 'retain-on-failure', screenshots: false, snapshots: false, sources: true },
+});
+
 async function developerTerrain(page: Page): Promise<void> {
   await page.keyboard.press('F2');
   await page.getByRole('tab', { name: 'Terrain', exact: true }).click();
@@ -51,24 +57,29 @@ test('two ordinary online survivors see the same excavation and collide with it 
     allowedOrigins: testOrigins,
     log: () => {},
   });
-  const contexts = await Promise.all([browser.newContext(), browser.newContext()]);
+  const contextOptions = { viewport: { width: 1024, height: 640 }, deviceScaleFactor: 0.5 };
+  const contexts = await Promise.all([
+    browser.newContext(contextOptions),
+    browser.newContext(contextOptions),
+  ]);
   const [a, b] = await Promise.all(contexts.map((context) => context.newPage()));
   const errors = [errorsOn(a), errorsOn(b)];
   const connect = async (page: Page) => {
-    await page.getByRole('button', { name: 'Join a world' }).click();
+    await page.getByRole('button', { name: 'Join a world' }).press('Enter');
     await page.getByLabel('World server', { exact: true }).fill(`ws://127.0.0.1:${server.port}`);
-    await page.getByRole('button', { name: 'Join world', exact: true }).click();
+    await page.getByRole('button', { name: 'Join world', exact: true }).press('Enter');
     await expect(page.locator('#hud')).toBeVisible();
     await expect.poll(async () => (await diagnostics(page)).mode).toBe('online');
   };
   try {
     for (const page of [a, b]) {
       await page.goto('/');
-      await page.getByRole('button', { name: 'Settings', exact: true }).click();
+      await page.getByRole('button', { name: 'Settings', exact: true }).press('Enter');
       await page.locator('#quality').selectOption('mobile');
-      await page.getByText('Rendering effects', { exact: true }).click();
+      await page.getByText('Rendering effects', { exact: true }).press('Enter');
       await page.locator('[data-graphics="resolutionScale"]').fill('0.5');
-      await page.getByRole('button', { name: 'Apply settings' }).click();
+      await page.locator('[data-graphics="viewDistance"]').fill('0.5');
+      await page.getByRole('button', { name: 'Apply settings' }).press('Enter');
       await connect(page);
     }
     await gather(a, 'starter-fiber', 1);
