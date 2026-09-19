@@ -226,10 +226,11 @@ test('developer brushes form a hillside cave that can be entered, built in, save
   await page.getByRole('checkbox', { name: 'Free building', exact: true }).check();
   await page.getByRole('tab', { name: 'Inspector' }).click();
   await page.locator('#dev-x').fill('12');
-  await page.locator('#dev-z').fill('85');
+  // Set the fixture's entrance position through the visible developer control.
+  // The later keyboard walk into the cave verifies collision and entry.
+  await page.locator('#dev-z').fill('84');
   await page.getByRole('button', { name: 'Teleport', exact: true }).click();
   await page.getByRole('button', { name: 'Close panel' }).click();
-  await walkTo(page, 12, 84, 0.25);
   await aimAt(page, 12, 9.65, 78);
   await page.keyboard.press('KeyB');
   await page.getByRole('button', { name: 'Bedroll', exact: false }).click();
