@@ -26,7 +26,7 @@ describe('wire protocol', () => {
         .success,
     ).toBe(true);
   });
-  it('reveals dropped inventory only to its owner and hides other survivors’ private state', () => {
+  it('reveals ground supplies to their owner or nearby survivors while keeping player packs private', () => {
     const world = generateWorld('privacy');
     const sim = new Simulation(world, createState(world));
     sim.addPlayer('a', 'A');
@@ -44,6 +44,8 @@ describe('wire protocol', () => {
       forB = snapshotFor(sim.state, 'b');
     expect(forA.bags[0].inventory).toEqual({});
     expect(forB.bags[0].inventory).toEqual({ wood: 5 });
+    sim.state.players.a.position.z = 88;
+    expect(snapshotFor(sim.state, 'a').bags[0].inventory).toEqual({ wood: 5 });
     expect(forA.self.id).toBe('a');
     expect(forA.players.map((p) => p.id)).toEqual(['b']);
     expect(Object.keys(forA.players[0]).sort()).toEqual([
@@ -52,8 +54,30 @@ describe('wire protocol', () => {
       'id',
       'name',
       'position',
+      'worn',
       'yaw',
     ]);
+    expect(forA.players[0].worn).toEqual({ armor: null, backpack: null });
+  });
+  it('accepts only bounded item-transfer intent, never client positions or rewards', () => {
+    const message = (command: unknown) => ({ type: 'command', seq: 1, command });
+    for (const command of [
+      { type: 'drop', item: 'wood', count: 0 },
+      { type: 'drop', item: 'wood', count: 1.5 },
+      { type: 'drop', item: 'wood', count: 10001 },
+      { type: 'drop', item: 'wood', count: 1, x: 100 },
+      { type: 'collect', target: 'bag1', count: 2 },
+      { type: 'collect', target: 'bag1', inventory: { wood: 10 } },
+    ])
+      expect(clientMessageSchema.safeParse(message(command)).success).toBe(false);
+    expect(
+      clientMessageSchema.safeParse(message({ type: 'drop', item: 'wood', count: 1 })).success,
+    ).toBe(true);
+    expect(
+      clientMessageSchema.safeParse(
+        message({ type: 'collect', target: 'bag1', item: 'wood', count: 2 }),
+      ).success,
+    ).toBe(true);
   });
   it('serves the static client health route with the package version and protocol', async () => {
     const response = GET();

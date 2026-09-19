@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { BALANCE, RESOURCE_TYPES } from './content';
-import { transact } from './inventory';
+import { BALANCE, RESOURCE_TYPES, TOOLS } from './content';
+import { carryCapacity, transact } from './inventory';
 import { lineOfSight, groundHeight, blocked } from './physics';
 import type { GameState, PlayerState, Result } from './state';
 import type { WorldDefinition } from './world';
@@ -16,6 +16,8 @@ import {
   terrainRaycast,
 } from './terrain';
 import type { TerrainBrush, TerrainHit, TerrainPatch } from './terrain';
+import { structureSolids } from './structure-geometry';
+import { siteSolids } from './site-generation';
 
 export const earthworkSchema = z
   .object({
@@ -116,30 +118,46 @@ export function editTerrain(
     )
       return { ok: false, message: 'Wildlife is in the fill area.' };
   }
-  for (const b of state.buildings) {
+  for (const b of [
+    ...state.buildings,
+    ...world.sites.filter((s) => !state.sites[s.id]?.disabled),
+  ]) {
     if (Math.hypot(b.x - brush.x, b.z - brush.z) > brush.radius * 2 + 5) continue;
-    const width =
-      b.kind === 'foundation' ? 1.9 : b.kind === 'wall' ? (b.rotation % 2 ? 0.1 : 1.9) : 0.6;
-    const depth = b.kind === 'wall' ? (b.rotation % 2 ? 1.9 : 0.1) : width;
-    const height = b.kind === 'wall' ? 3 : b.kind === 'foundation' ? 0.3 : 0.7;
-    for (const dx of [-width, 0, width])
-      for (const dz of [-depth, 0, depth]) {
-        const x = b.x + dx,
-          z = b.z + dz;
-        for (let y = b.y + 0.1; y < b.y + height; y += 0.25) {
+    const solids = 'owner' in b ? structureSolids(b) : siteSolids(b);
+    for (const solid of solids) {
+      const width = solid.width / 2 - 0.03,
+        depth = solid.depth / 2 - 0.03;
+      for (const dx of [-width, 0, width])
+        for (const dz of [-depth, 0, depth]) {
+          const x = solid.x + dx,
+            z = solid.z + dz;
+          for (
+            let y = Math.max(b.y + 0.05, solid.y - solid.height / 2 + 0.03);
+            y < solid.y + solid.height / 2;
+            y += 0.15
+          ) {
+            if (
+              terrainDensity(state.terrain, world, x, y, z) >= 0 &&
+              terrainDensity(next, world, x, y, z) < -0.01
+            )
+              return { ok: false, message: 'The fill would bury a structure. Remove it first.' };
+          }
           if (
-            terrainDensity(state.terrain, world, x, y, z) >= 0 &&
-            terrainDensity(next, world, x, y, z) < -0.01
+            !('support' in b && b.support) &&
+            terrainFloor(next, world, x, z, b.y + 0.1) <
+              terrainFloor(state.terrain, world, x, z, b.y + 0.1) - 0.1
           )
-            return { ok: false, message: 'The fill would bury a structure. Remove it first.' };
+            return { ok: false, message: 'This would undermine a structure. Remove it first.' };
         }
-        if (
-          b.kind !== 'wall' &&
-          terrainFloor(next, world, x, z, b.y + 0.1) <
-            terrainFloor(state.terrain, world, x, z, b.y + 0.1) - 0.1
-        )
-          return { ok: false, message: 'This would undermine a structure. Remove it first.' };
-      }
+    }
+  }
+  for (const bag of state.bags) {
+    if (
+      Math.hypot(bag.x - brush.x, bag.z - brush.z) <= brush.radius * 2 + 1 &&
+      terrainBodyClear(state.terrain, world, bag.x, bag.y, bag.z, 0.25, 0.4) &&
+      !terrainBodyClear(next, world, bag.x, bag.y, bag.z, 0.25, 0.4)
+    )
+      return { ok: false, message: 'Collect the ground supplies before filling this spot.' };
   }
   // Finite seeded resources stay anchored. Unearthing roots removes the node;
   // regrowth checks this same support rule, so caves cannot grow floating trees.
@@ -160,6 +178,7 @@ export function editTerrain(
       p.inventory,
       cost ? { dirt: cost } : {},
       gain ? { dirt: gain } : {},
+      carryCapacity(p),
     );
     if (!transaction.ok)
       return {
@@ -199,8 +218,11 @@ export function playerEarthwork(
   if (!parsed.success) return { ok: false, message: 'Invalid terrain action.' };
   if (p.cooldown > 0) return { ok: false, message: 'Wait a moment.' };
   if (p.stamina < BALANCE.terrainStamina) return { ok: false, message: 'Rest to recover stamina.' };
-  if (request.mode !== 'add' && (p.equipped !== 'pickaxe' || !p.inventory.pickaxe))
-    return { ok: false, message: 'Equip a stone pickaxe to dig or flatten terrain.' };
+  if (
+    request.mode !== 'add' &&
+    (TOOLS[p.equipped]?.family !== 'pickaxe' || !p.inventory[p.equipped])
+  )
+    return { ok: false, message: 'Equip a pickaxe to dig or flatten terrain.' };
   const hit = terrainAim(state, world, p);
   if (!hit || !lineOfSight(state, p, hit.point.x, hit.point.y, hit.point.z, world))
     return { ok: false, message: 'Aim at visible ground within 5 metres.' };

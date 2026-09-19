@@ -1,3 +1,5 @@
+import { createBuilding } from '../../src/shared/state';
+import type { Building, BuildingPlacement } from '../../src/shared/state';
 import { describe, expect, it } from 'vitest';
 import { buildCandidate, validateBuild } from '../../src/shared/building';
 import {
@@ -53,6 +55,9 @@ const sculpt = (state: ReturnType<typeof createState>, b: TerrainBrush) => {
   commitTerrainEdit(state.terrain, plan.patch);
   return plan;
 };
+
+const building = (b: BuildingPlacement & Pick<Building, 'id' | 'owner'>): Building =>
+  createBuilding(b, b.id, b.owner);
 
 describe('volumetric terrain foundation', () => {
   it('retains the seeded triangle surface, including negative coordinates and cell diagonals', () => {
@@ -189,7 +194,7 @@ describe('volumetric terrain foundation', () => {
     expect(validateBuild(state, world, p, bed).ok).toBe(true);
     expect(groundHeight(state, world, 20, 88, p.position.y + 0.65)).toBe(2);
     expect(lineOfSight(state, p, 20, 17, 88, world)).toBe(false);
-    state.buildings.push({ ...bed, id: 'b1', owner: p.id });
+    state.buildings.push(building({ ...bed, id: 'b1', owner: p.id }));
     state.nextId = 2;
     const before = structuredClone(state);
     expect(editTerrain(state, world, p, brush({ y: 2 }), true).message).toContain('undermine');
@@ -198,15 +203,17 @@ describe('volumetric terrain foundation', () => {
   it('keeps cave respawns and dropped supplies on their foundation', () => {
     const { sim, state, p } = fixture();
     sculpt(state, brush());
-    state.buildings.push({
-      id: 'platform',
-      kind: 'foundation',
-      x: 20,
-      y: 2.3,
-      z: 88,
-      rotation: 0,
-      owner: p.id,
-    });
+    state.buildings.push(
+      building({
+        id: 'platform',
+        kind: 'foundation',
+        x: 20,
+        y: 2.3,
+        z: 88,
+        rotation: 0,
+        owner: p.id,
+      }),
+    );
     p.respawn = { x: 20, y: 2.3, z: 88 };
     p.health = 0;
     expect(sim.command(p.id, { type: 'respawn' }).ok).toBe(true);
@@ -294,15 +301,17 @@ describe('volumetric terrain foundation', () => {
     const { state, p } = fixture();
     sculpt(state, brush());
     p.position = { x: 20, y: 2, z: 88 };
-    state.buildings.push({
-      id: 'overhead',
-      kind: 'foundation',
-      x: 20,
-      y: 4,
-      z: 88,
-      rotation: 0,
-      owner: p.id,
-    });
+    state.buildings.push(
+      building({
+        id: 'overhead',
+        kind: 'foundation',
+        x: 20,
+        y: 4,
+        z: 88,
+        rotation: 0,
+        owner: p.id,
+      }),
+    );
     const before = structuredClone(state);
     const fill = brush({ mode: 'flatten', y: 2, level: 2.5, radius: 1.5 });
     expect(editTerrain(state, world, p, fill, true).message).toContain('survivor');
@@ -356,6 +365,11 @@ describe('volumetric terrain foundation', () => {
     const v2 = JSON.parse(encodeSave(state, 'local'));
     v2.version = v2.state.version = 2;
     delete v2.state.terrain;
+    delete v2.state.sites;
+    for (const player of Object.values(v2.state.players) as Record<string, unknown>[]) {
+      delete player.worn;
+      delete player.quickSlots;
+    }
     const migrated = parseSave(JSON.stringify(v2));
     expect(migrated.state.terrain).toEqual(emptyTerrain());
     expect(migrated.state.worldVersion).toBe(state.worldVersion);

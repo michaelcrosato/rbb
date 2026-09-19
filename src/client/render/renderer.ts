@@ -1,11 +1,24 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { BALANCE, RESOURCE_TYPES, WILDLIFE } from '../../shared/content';
+import {
+  BALANCE,
+  BUILDINGS,
+  ITEMS,
+  RESOURCE_TYPES,
+  SITE_TYPES,
+  STRUCTURE_GRADES,
+  WEAPONS,
+  WILDLIFE,
+} from '../../shared/content';
 import type { BuildingKind, ItemId, ResourceKind } from '../../shared/content';
 import { random } from '../../shared/math';
 import type { Snapshot } from '../../shared/protocol';
 import { resourceIsActive } from '../../shared/state';
-import type { Building, GameState, PlayerState } from '../../shared/state';
+import type { BuildingPlacement, GameState, PlayerState } from '../../shared/state';
+import { structureSolids, structureSignature } from '../../shared/structure-geometry';
+import { isQuarry } from '../../shared/site-generation';
+import { raySolid } from '../../shared/spatial';
+import { siteModel } from './sites';
 import { nearbyResources } from '../../shared/world';
 import type { Resource, WorldDefinition } from '../../shared/world';
 import {
@@ -66,7 +79,7 @@ export interface Target {
   id: string;
   name: string;
   action: string;
-  kind: 'resource' | 'animal' | 'bag';
+  kind: 'resource' | 'animal' | 'bag' | 'site' | 'building';
   resource?: Resource;
 }
 
@@ -156,6 +169,7 @@ export class WorldRenderer {
   private tuning: Tuning = { ...DEFAULT_TUNING };
   private camps: Snapshot['buildings'] = [];
   private buildingSignature = '';
+  private sites = new Map<string, THREE.Group>();
   private readonly debugGroup = new THREE.Group();
   private readonly debugBounds = new THREE.InstancedMesh(
     new THREE.BoxGeometry(),
@@ -350,7 +364,13 @@ export class WorldRenderer {
     this.cullables.length = 0;
     this.actors.clear();
     this.loot.clear();
+    this.sites.clear();
     this.world = world;
+    for (const site of world.sites) {
+      const model = siteModel(site);
+      this.sites.set(site.id, model);
+      this.worldGroup.add(model);
+    }
     this.terrain = new EditableTerrain(world);
     this.ocean.setWorld(world, (x, z) => this.terrain.height(x, z));
     const terrain = this.terrain.group;
@@ -393,7 +413,7 @@ export class WorldRenderer {
       this.surfaces.apply(batchMaterial, wind, kind === 'tree' ? 8 : 1.5);
       const batch = new THREE.InstancedMesh(geometries.get(kind)!, batchMaterial, resources.length);
       if (wind) batch.customDepthMaterial = this.surfaces.depth(kind === 'tree' ? 8 : 1.5);
-      batch.castShadow = kind === 'tree' || kind === 'rock';
+      batch.castShadow = RESOURCE_TYPES[kind].radius > 0;
       batch.receiveShadow = kind !== 'tree';
       resources.forEach((r, index) => {
         dummy.position.set(r.x, r.y, r.z);
@@ -561,7 +581,7 @@ export class WorldRenderer {
     this.environment = snapshot.environment;
     this.tuning = snapshot.tuning;
     this.camps = snapshot.buildings.filter((b) => b.kind === 'campfire');
-    const buildingSignature = snapshot.buildings.map((building) => building.id).join(',');
+    const buildingSignature = snapshot.buildings.map(structureSignature).join(',');
     if (buildingSignature !== this.buildingSignature) {
       this.buildingSignature = buildingSignature;
       this.post.frame.reset('construction changed');
@@ -599,10 +619,8 @@ export class WorldRenderer {
         }
       }
       for (const b of snapshot.buildings)
-        if (b.kind === 'wall')
-          box(b.x, b.y, b.z, b.rotation % 2 ? 0.9 : 4.66, 3, b.rotation % 2 ? 4.66 : 0.9);
-      for (const b of snapshot.buildings)
-        if (b.kind === 'foundation') box(b.x, b.y - 0.17, b.z, 4.3, 0.17, 4.3);
+        for (const s of structureSolids(b))
+          box(s.x, s.y - s.height / 2, s.z, s.width, s.height, s.depth);
       for (const p of snapshot.players)
         box(p.position.x, p.position.y, p.position.z, 0.66, 1.7, 0.66);
       for (const a of snapshot.animals)
@@ -625,6 +643,7 @@ export class WorldRenderer {
       }
     }
     this.buildings.sync(snapshot.buildings);
+    for (const [id, model] of this.sites) model.visible = !snapshot.sites[id]?.disabled;
     const actors = new Set<string>();
     for (const animal of snapshot.animals) {
       if (animal.health <= 0) continue;
@@ -645,7 +664,14 @@ export class WorldRenderer {
     for (const player of snapshot.players) {
       if (player.health <= 0) continue;
       actors.add(player.id);
-      const object = this.actors.get(player.id) ?? survivorModel();
+      const appearance = `${player.worn.armor}:${player.worn.backpack}`;
+      const existing = this.actors.get(player.id);
+      if (existing && existing.userData.appearance !== appearance) {
+        disposeObject(existing);
+        this.actors.delete(player.id);
+      }
+      const object = this.actors.get(player.id) ?? survivorModel(player.worn);
+      object.userData.appearance = appearance;
       if (!this.actors.has(player.id)) {
         this.actors.set(player.id, object);
         this.worldGroup.add(object);
@@ -670,7 +696,7 @@ export class WorldRenderer {
         disposeObject(object);
         this.loot.delete(id);
       }
-    for (const bag of snapshot.bags)
+    for (const bag of snapshot.bags) {
       if (!this.loot.has(bag.id)) {
         const object = mesh(
           new THREE.BoxGeometry(0.5, 0.4, 0.65),
@@ -682,10 +708,15 @@ export class WorldRenderer {
         this.loot.set(bag.id, object);
         this.worldGroup.add(object);
       }
-    if (snapshot.self.equipped !== this.equipped) {
-      this.equipped = snapshot.self.equipped;
+      this.loot.get(bag.id)!.position.set(bag.x, bag.y + 0.2, bag.z);
+    }
+    const equipped = snapshot.self.inventory[snapshot.self.equipped]
+      ? snapshot.self.equipped
+      : null;
+    if (equipped !== this.equipped) {
+      this.equipped = equipped;
       for (const child of [...this.hand.children]) disposeObject(child);
-      this.hand.add(toolModel(snapshot.self.equipped));
+      if (equipped) this.hand.add(toolModel(equipped));
     }
     this.registerMaterials();
   }
@@ -696,16 +727,31 @@ export class WorldRenderer {
     const origin = this.camera.position,
       direction = new THREE.Vector3();
     this.camera.getWorldDirection(direction);
-    const consider = (x: number, y: number, z: number, target: Target, radius: number) => {
+    const consider = (
+      x: number,
+      y: number,
+      z: number,
+      target: Target,
+      radius: number,
+      range: number = BALANCE.interactRange,
+    ) => {
       const delta = new THREE.Vector3(x, y, z).sub(origin),
         dist = delta.length();
       const dot = delta.normalize().dot(direction);
       const threshold = 1 - Math.max(0.06, (radius / Math.max(dist, 1)) * 0.24);
       if (
-        Math.hypot(x - player.position.x, z - player.position.z) <= BALANCE.interactRange &&
+        Math.hypot(x - player.position.x, z - player.position.z) <= range &&
         dot > threshold &&
         dot - dist * 0.013 > bestScore &&
-        lineOfSight(state, player, x, y, z, this.world)
+        lineOfSight(
+          state,
+          player,
+          x,
+          y,
+          z,
+          this.world,
+          target.kind === 'building' || target.kind === 'site' ? target.id : undefined,
+        )
       ) {
         best = target;
         bestScore = dot - dist * 0.013;
@@ -718,7 +764,7 @@ export class WorldRenderer {
       BALANCE.interactRange,
     )) {
       if (!resourceIsActive(state, r.id)) continue;
-      const height = r.kind === 'tree' ? 1.5 : r.kind === 'rock' ? 0.9 : 0.5;
+      const height = r.kind === 'tree' ? 1.5 : RESOURCE_TYPES[r.kind].radius > 0 ? 0.9 : 0.5;
       consider(
         r.x,
         r.y + height,
@@ -729,11 +775,7 @@ export class WorldRenderer {
           action:
             r.kind === 'spring'
               ? 'Drink fresh water'
-              : r.kind === 'tree'
-                ? 'Gather wood'
-                : r.kind === 'rock'
-                  ? 'Gather stone'
-                  : 'Collect',
+              : `Gather ${ITEMS[RESOURCE_TYPES[r.kind].item].name.toLowerCase()}`,
           kind: 'resource',
           resource: r,
         },
@@ -748,6 +790,9 @@ export class WorldRenderer {
           animal.z,
           { id: animal.id, name: WILDLIFE[animal.species].name, action: 'Attack', kind: 'animal' },
           1,
+          player.inventory[player.equipped]
+            ? (WEAPONS[player.equipped]?.range ?? BALANCE.interactRange)
+            : BALANCE.interactRange,
         );
     for (const bag of state.bags)
       consider(
@@ -756,19 +801,55 @@ export class WorldRenderer {
         bag.z,
         {
           id: bag.id,
-          name: bag.owner === player.id ? 'Your lost pack' : 'Supply pack',
+          name: bag.owner === player.id ? 'Your supplies' : 'Shared supplies',
           action: 'Collect supplies',
           kind: 'bag',
         },
         0.8,
       );
+    for (const site of this.world.sites)
+      if (!isQuarry(site) && !state.sites[site.id]?.disabled)
+        consider(
+          site.x,
+          site.y + 0.5,
+          site.z,
+          {
+            id: site.id,
+            name: SITE_TYPES[site.kind].name,
+            action: 'Search shared salvage',
+            kind: 'site',
+          },
+          0.8,
+        );
+    for (const b of state.buildings) {
+      if (Math.hypot(b.x - player.position.x, b.z - player.position.z) > BALANCE.interactRange)
+        continue;
+      for (const solid of structureSolids(b)) {
+        const hit = raySolid(origin, direction, solid, BALANCE.interactRange + 2);
+        if (hit !== null)
+          consider(
+            origin.x + direction.x * hit,
+            origin.y + direction.y * hit,
+            origin.z + direction.z * hit,
+            {
+              id: b.id,
+              name: BUILDINGS[b.kind].name,
+              action: `${STRUCTURE_GRADES[b.grade].name} · ${Math.ceil(b.health)} HP · Inspect`,
+              kind: 'building',
+            },
+            0.3,
+          );
+      }
+    }
     this.selection.visible = !!best;
     if (best) {
       const target = best as Target;
       const position =
         target.resource ??
         state.animals.find((a) => a.id === target.id) ??
-        state.bags.find((b) => b.id === target.id)!;
+        state.bags.find((b) => b.id === target.id) ??
+        state.buildings.find((b) => b.id === target.id) ??
+        this.world.sites.find((site) => site.id === target.id)!;
       this.selection.position.set(position.x, position.y + 0.05, position.z);
       this.selection.scale.setScalar(target.resource?.kind === 'rock' ? 2 : 1);
     }
@@ -785,7 +866,7 @@ export class WorldRenderer {
     this.terrainBox.visible = brush.shape === 'box';
   }
 
-  showPreview(building: Omit<Building, 'id' | 'owner'> | null, valid: boolean): void {
+  showPreview(building: BuildingPlacement | null, valid: boolean): void {
     if (!building) {
       if (this.preview) this.preview.visible = false;
       return;

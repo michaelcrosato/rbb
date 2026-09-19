@@ -9,6 +9,12 @@ const paths: Record<string, string> = {
   meat: '<path d="M5 19c-6-5 0-10 4-14s12-1 11 5-10 14-15 9Z"/><path d="M9 15c-3-3 0-6 3-7s5 0 4 3-4 7-7 4Z"/>',
   hatchet: '<path d="m6 22 9-17 2 1-9 17M14 5l-5-3-6 9 8 3m5-8 5 1-3 7-6-1"/>',
   pickaxe: '<path d="m5 22 10-18 2 1-10 18M3 5c8-5 16-2 19 7l-8-5-11-2Z"/>',
+  spear: '<path d="m3 21 13-13m-2-5 7-1-1 7-6-6Z"/>',
+  bow: '<path d="M7 2c15 5 15 15 0 20L12 12 7 2Zm-4 10h18m-4-3 4 3-4 3"/>',
+  pistol: '<path d="M3 6h18v5H10l-2 9H3l2-9H3V6Zm7 5h5v4h-6M17 6V4"/>',
+  rifle: '<path d="M2 13h5l3-4h11v3H10l-3 5H2v-4Zm11-4V6h5v3m-5 3 2 6m-3-6v3h4M21 10h2"/>',
+  ammo: '<path d="M5 21V9l3-6 3 6v12H5Zm0-4h6m4 4V9l3-6 3 6v12h-6Zm0-4h6"/>',
+  armor: '<path d="m3 5 5-3 4 4 4-4 5 3-2 6v11H5V11L3 5Zm5-3v8h8V2M8 14h8m-8 4h8"/>',
   bandage:
     '<rect x="3" y="7" width="18" height="10" rx="3" transform="rotate(-40 12 12)"/><path d="m9 11 4-3 3 4-4 3-3-4Z"/>',
   foundation: '<path d="m2 9 10-5 10 5-10 5-10-5Zm0 0v8l10 5 10-5V9M12 14v8M7 7l10 5M7 12v7"/>',

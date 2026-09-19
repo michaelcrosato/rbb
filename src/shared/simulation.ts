@@ -1,24 +1,22 @@
-import {
-  BALANCE,
-  BUILDINGS,
-  CONSUMABLES,
-  ITEMS,
-  RECIPES,
-  RESOURCE_TYPES,
-  WILDLIFE,
-} from './content';
+import { BALANCE, BUILDINGS, CONSUMABLES, ITEMS, RESOURCE_TYPES, TOOLS } from './content';
 import { buildCandidate, validateBuild } from './building';
-import { transact } from './inventory';
+import { carryCapacity, transact } from './inventory';
 import { clamp, distance2 } from './math';
 import { lineOfSight, stepPlayer, groundHeight } from './physics';
 import { playerEarthwork, resourceSupported, safeTerrainSpawn } from './earthworks';
 import type { Command } from './protocol';
-import { createPlayer, idleInput, resourceHealth, resourceIsActive } from './state';
+import { createBuilding, createPlayer, idleInput, resourceHealth, resourceIsActive } from './state';
 import type { GameEvent, GameState, PlayerState, Result } from './state';
 import { developerAction, developerSchema } from './developer';
 import { stepEnvironment } from './environment';
 import { stepWildlife } from './wildlife';
 import type { WorldDefinition } from './world';
+import { collectBag, createGroundLoot, dropItems } from './transfers';
+import { collectSite, restockSites } from './sites';
+import { craftItems } from './crafting';
+import { attack } from './combat';
+import { structureAction, storageTransfer } from './structures';
+import { armorResistance, wearEquipment } from './equipment';
 
 export class Simulation {
   readonly events: GameEvent[] = [];
@@ -70,7 +68,7 @@ export class Simulation {
       p.thirst = 80;
       p.stamina = 100;
       p.oxygen = 100;
-      p.inventory = { rock: 1, berries: 2 };
+      if (!Object.keys(p.inventory).length) p.inventory = { rock: 1, berries: 2 };
       p.equipped = 'rock';
       p.input = idleInput();
       p.cooldown = 0;
@@ -94,6 +92,68 @@ export class Simulation {
       p.equipped = command.item;
       return { ok: true, message: '' };
     }
+    if (command.type === 'wear') {
+      const result = wearEquipment(p, command.item);
+      return result.ok ? this.event('loot', p, result.message) : result;
+    }
+    if (command.type === 'quick-slot') {
+      if (
+        !p.inventory[command.item] ||
+        !Number.isInteger(command.slot) ||
+        command.slot < 0 ||
+        command.slot > 4
+      )
+        return fail('Choose an item from your pack and a quick slot.');
+      p.quickSlots[command.slot] = command.item;
+      return this.event(
+        'loot',
+        p,
+        `Assigned ${ITEMS[command.item].name.toLowerCase()} to slot ${command.slot + 1}.`,
+      );
+    }
+    if (command.type === 'structure') {
+      const result = structureAction(this.state, this.world, p, command.target, command.action);
+      if (result.ok) this.state.tick++;
+      return result.ok ? this.event('build', p, result.message) : result;
+    }
+    if (command.type === 'storage') {
+      const result = storageTransfer(
+        this.state,
+        this.world,
+        p,
+        command.target,
+        command.direction,
+        command.item,
+        command.count,
+      );
+      return result.ok ? this.event('loot', p, result.message) : result;
+    }
+    if (command.type === 'attack') {
+      const result = attack(this.state, this.world, p);
+      return result.ok ? this.event('damage', p, result.message) : result;
+    }
+    if (command.type === 'drop') {
+      const result = dropItems(this.state, this.world, p, command.item, command.count);
+      if (result.ok && !p.inventory[p.equipped]) p.equipped = 'rock';
+      return result.ok ? this.event('loot', p, result.message) : result;
+    }
+    if (command.type === 'collect') {
+      if (this.state.sites[command.target]) {
+        const result = collectSite(
+          this.state,
+          this.world,
+          p,
+          command.target,
+          command.item,
+          command.count,
+        );
+        return result.ok ? this.event('loot', p, result.message) : result;
+      }
+      const bag = this.state.bags.find((bag) => bag.id === command.target);
+      if (!bag) return fail('Those supplies are no longer available.');
+      const result = collectBag(this.state, this.world, p, bag, command.item, command.count);
+      return result.ok ? this.event('loot', p, result.message) : result;
+    }
     if (p.cooldown > 0 && (command.type === 'interact' || command.type === 'build'))
       return fail('Wait a moment.');
     if (command.type === 'terrain') {
@@ -103,7 +163,7 @@ export class Simulation {
     if (command.type === 'consume') {
       const effect = CONSUMABLES[command.item];
       if (!effect) return fail('You cannot use this item.');
-      const result = transact(p.inventory, { [command.item]: 1 }, {});
+      const result = transact(p.inventory, { [command.item]: 1 }, {}, carryCapacity(p));
       if (!result.ok) return result;
       p.hunger = clamp(p.hunger + (effect.hunger ?? 0), 0, 100);
       p.thirst = clamp(p.thirst + (effect.thirst ?? 0), 0, 100);
@@ -112,25 +172,8 @@ export class Simulation {
       return this.event('consume', p, `Used ${ITEMS[command.item].name.toLowerCase()}.`);
     }
     if (command.type === 'craft') {
-      const recipe = RECIPES[command.recipe];
-      if (
-        'station' in recipe &&
-        !this.state.buildings.some(
-          (b) =>
-            b.kind === recipe.station &&
-            distance2(p.position, b) <= 5 &&
-            Math.abs(p.position.y - b.y) < 3 &&
-            lineOfSight(this.state, p, b.x, b.y + 0.5, b.z, this.world),
-        )
-      )
-        return fail('You need a campfire within 5 metres.');
-      const result = transact(p.inventory, recipe.cost, recipe.output);
-      if (!result.ok) return result;
-      if (command.recipe === 'hatchet' || command.recipe === 'pickaxe') {
-        p.milestones.craft++;
-        p.equipped = command.recipe;
-      }
-      return this.event('craft', p, `Crafted ${recipe.name.toLowerCase()}.`);
+      const result = craftItems(this.state, this.world, p, command.recipe, command.count);
+      return result.ok ? this.event('craft', p, result.message) : result;
     }
     if (command.type === 'build') {
       const b = buildCandidate(
@@ -141,12 +184,18 @@ export class Simulation {
         command.z,
         command.rotation,
         p.position.y + 0.65,
+        p.position,
       );
       const result = validateBuild(this.state, this.world, p, b);
       if (!result.ok) return result;
-      const cost = transact(p.inventory, p.dev.freeBuild ? {} : BUILDINGS[b.kind].cost, {});
+      const cost = transact(
+        p.inventory,
+        p.dev.freeBuild ? {} : BUILDINGS[b.kind].cost,
+        {},
+        carryCapacity(p),
+      );
       if (!cost.ok) return cost;
-      this.state.buildings.push({ ...b, id: `b${this.state.nextId++}`, owner: id });
+      this.state.buildings.push(createBuilding(b, `b${this.state.nextId++}`, id));
       p.cooldown = 0.4;
       p.milestones.build++;
       if (b.kind === 'bedroll') {
@@ -190,12 +239,14 @@ export class Simulation {
         return this.event('consume', p, 'Fresh water. Thirst restored.');
       }
       const def = RESOURCE_TYPES[resource.kind];
-      const multiplier = p.equipped === def.tool && def.health > 1 ? 3 : 1;
+      const tool = p.inventory[p.equipped] ? TOOLS[p.equipped] : undefined;
+      const multiplier = tool?.family === def.tool && def.health > 1 ? tool.hits : 1;
       const hits = Math.min(resourceHealth(this.state, this.world, id), multiplier);
       const result = transact(
         p.inventory,
         {},
         { [def.item]: def.yield * hits * this.state.tuning.gatherYield },
+        carryCapacity(p),
       );
       if (!result.ok) return result;
       const health = resourceHealth(this.state, this.world, id) - hits;
@@ -214,37 +265,16 @@ export class Simulation {
     }
     const animal = this.state.animals.find((a) => a.id === id && a.health > 0);
     if (animal) {
-      const species = WILDLIFE[animal.species];
-      if (!this.inReach(p, animal)) return fail(`${species.name} is out of reach.`);
-      animal.health = Math.max(0, animal.health - (p.equipped === 'hatchet' ? 30 : 15));
-      p.cooldown = 0.6;
-      if (animal.health <= 0) {
-        animal.respawnAt = this.state.time + this.state.tuning.wildlifeRespawn;
-        this.state.bags.push({
-          id: `bag${this.state.nextId++}`,
-          owner: '',
-          x: animal.x,
-          y: animal.y,
-          z: animal.z,
-          inventory: { ...species.loot },
-          expiresAt: this.state.time + 600,
-        });
-      }
-      return this.event(
-        'damage',
-        p,
-        animal.health > 0 ? `${species.name} hit.` : `${species.name} down. Collect its supplies.`,
-      );
+      const result = attack(this.state, this.world, p, id);
+      return result.ok ? this.event('damage', p, result.message) : result;
     }
     const bagIndex = this.state.bags.findIndex((b) => b.id === id);
     if (bagIndex >= 0) {
       const bag = this.state.bags[bagIndex];
-      if (!this.inReach(p, bag)) return fail('Move closer to the pack.');
-      const result = transact(p.inventory, {}, bag.inventory);
+      const result = collectBag(this.state, this.world, p, bag);
       if (!result.ok) return result;
-      this.state.bags.splice(bagIndex, 1);
       p.cooldown = 0.3;
-      return this.event('loot', p, 'Supplies collected.');
+      return this.event('loot', p, result.message);
     }
     return fail('There is nothing to gather here.');
   }
@@ -277,7 +307,7 @@ export class Simulation {
             b.kind === 'campfire' &&
             distance2(p.position, b) < 5 &&
             Math.abs(p.position.y - b.y) < 3 &&
-            lineOfSight(this.state, p, b.x, b.y + 0.5, b.z, this.world),
+            lineOfSight(this.state, p, b.x, b.y + 0.5, b.z, this.world, b.id),
         )
       )
         p.health = Math.min(100, p.health + dt * 0.8);
@@ -288,11 +318,12 @@ export class Simulation {
     }
     stepWildlife(this.state, this.world, activePlayers, dt, (p, damage, name) => {
       if (p.dev.invincible) return;
-      p.health = Math.max(0, p.health - damage);
+      p.health = Math.max(0, p.health - damage * (1 - armorResistance(p)));
       this.event('damage', p, `${name} hit you. Fight or find higher ground.`);
       if (p.health <= 0) this.die(p);
     });
     if (this.state.tick % 30 === 0) {
+      restockSites(this.state, this.world);
       for (const [id, resource] of Object.entries(this.state.resources)) {
         if (resource.health <= 0 && resource.respawnAt <= this.state.time) {
           const definition = this.world.resourceMap.get(id);
@@ -315,15 +346,19 @@ export class Simulation {
     p.health = 0;
     p.deaths++;
     p.input = idleInput();
-    if (Object.keys(p.inventory).length)
-      this.state.bags.push({
-        id: `bag${this.state.nextId++}`,
-        owner: p.id,
-        ...p.position,
-        inventory: { ...p.inventory },
-        expiresAt: this.state.time + 1800,
-      });
-    p.inventory = {};
-    this.event('death', p, 'You fell. Your supplies remain in a pack for 30 world minutes.');
+    const kept =
+      Object.keys(p.inventory).length > 0 &&
+      !createGroundLoot(this.state, p.position, p.inventory, p.id, 1800);
+    if (!kept) {
+      p.inventory = {};
+      p.worn = { armor: null, backpack: null };
+    }
+    this.event(
+      'death',
+      p,
+      kept
+        ? 'You fell. Ground storage is full; your supplies stay with you through respawn.'
+        : 'You fell. Your supplies remain in a pack for 30 world minutes.',
+    );
   }
 }

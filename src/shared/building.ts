@@ -2,12 +2,15 @@ import { BALANCE, BUILDINGS, RESOURCE_TYPES } from './content';
 import type { BuildingKind } from './content';
 import { canAfford } from './inventory';
 import { distance2 } from './math';
-import { wallContains, lineOfSight } from './physics';
+import { lineOfSight } from './physics';
 import { terrainBodyClear, terrainFloor, terrainSurfaces, TERRAIN } from './terrain';
 import { resourceIsActive } from './state';
-import type { Building, GameState, PlayerState, Result } from './state';
-import { nearbyResources } from './world';
+import type { BuildingPlacement, GameState, PlayerState, Result, Vec3 } from './state';
+import { nearbyResources, WORLD_HALF } from './world';
 import type { WorldDefinition } from './world';
+import { isPlatform, isUpper, isWall, structureSolids } from './structure-geometry';
+import { bodyIntersects, containsXZ, solidsOverlap } from './spatial';
+import { siteSolids } from './site-generation';
 
 export function buildCandidate(
   state: GameState,
@@ -17,17 +20,39 @@ export function buildCandidate(
   z: number,
   rotation: number,
   referenceY: number = TERRAIN.maxY,
-): Omit<Building, 'id' | 'owner'> {
+  origin?: Vec3,
+): BuildingPlacement {
   const ground = (x: number, z: number) =>
     terrainSurfaces(state.terrain, world, x, z)
       .filter((s) => s.floor)
       .sort((a, b) => Math.abs(a.y - referenceY) - Math.abs(b.y - referenceY))[0]?.y ??
     TERRAIN.minY;
-  let y: number;
   rotation = ((rotation % 4) + 4) % 4;
-  if (kind === 'wall') {
-    const foundation = state.buildings
-      .filter((b) => b.kind === 'foundation')
+  let y = ground(x, z),
+    support: string | null = null;
+  const platforms = state.buildings
+    .filter((b) => isPlatform(b.kind) && b.y <= referenceY + 0.5)
+    .sort(
+      (a, b) =>
+        distance2(a, { x, z }) +
+        Math.abs(a.y - referenceY) -
+        distance2(b, { x, z }) -
+        Math.abs(b.y - referenceY),
+    );
+  // Inside a room, walls/ceilings belong to the floor underfoot. This also avoids
+  // a fixed placement ray overshooting a 4 m platform when viewed from its centre.
+  const underfoot = origin
+    ? platforms.find(
+        (b) =>
+          Math.abs(origin.x - b.x) < 1.95 &&
+          Math.abs(origin.z - b.z) < 1.95 &&
+          Math.abs(origin.y - b.y) < 0.8,
+      )
+    : undefined;
+  const platform = underfoot ?? platforms.find((b) => distance2(b, { x, z }) < 5);
+  if (kind === 'door') {
+    const frame = state.buildings
+      .filter((b) => b.kind === 'doorway' && distance2(b, { x, z }) < 5)
       .sort(
         (a, b) =>
           distance2(a, { x, z }) +
@@ -35,16 +60,32 @@ export function buildCandidate(
           distance2(b, { x, z }) -
           Math.abs(b.y - referenceY),
       )[0];
-    if (foundation && distance2(foundation, { x, z }) < 5) {
-      x = foundation.x + (rotation === 1 ? 2 : rotation === 3 ? -2 : 0);
-      z = foundation.z + (rotation === 0 ? -2 : rotation === 2 ? 2 : 0);
-      y = foundation.y;
-    } else y = ground(x, z);
+    if (frame) {
+      x = frame.x;
+      y = frame.y;
+      z = frame.z;
+      rotation = frame.rotation;
+      support = frame.id;
+    }
+  } else if (isWall(kind) && platform) {
+    x = platform.x + (rotation === 1 ? 2 : rotation === 3 ? -2 : 0);
+    z = platform.z + (rotation === 0 ? -2 : rotation === 2 ? 2 : 0);
+    y = platform.y;
+    support = platform.id;
+  } else if (isUpper(kind) && platform) {
+    x = platform.x;
+    z = platform.z;
+    y = platform.y + 3;
+    support = state.buildings.find((b) => isWall(b.kind) && b.support === platform.id)?.id ?? null;
+  } else if (kind === 'stairs' && platform) {
+    x = platform.x;
+    z = platform.z;
+    y = platform.y;
+    support = platform.id;
   } else if (kind === 'foundation') {
     x = Math.round(x / 4) * 4;
     z = Math.round(z / 4) * 4;
     y = Math.max(...[-2, 2].flatMap((dx) => [-2, 2].map((dz) => ground(x + dx, z + dz)))) + 0.3;
-    // Adjoining platforms share a height if the terrain allows a small step.
     const neighbor = state.buildings.find(
       (b) =>
         b.kind === 'foundation' &&
@@ -56,111 +97,142 @@ export function buildCandidate(
     x = Math.round(x * 2) / 2;
     z = Math.round(z * 2) / 2;
     y = ground(x, z);
-    const foundation = state.buildings.find(
-      (b) =>
-        b.kind === 'foundation' &&
-        Math.abs(b.y - y) < 1 &&
-        Math.abs(x - b.x) < 1.6 &&
-        Math.abs(z - b.z) < 1.6,
-    );
-    if (foundation) y = foundation.y;
+    const under = platforms.find((b) => Math.abs(x - b.x) < 1.6 && Math.abs(z - b.z) < 1.6);
+    if (under) {
+      y = under.y;
+      support = under.id;
+    }
   }
-  return { kind, x, y, z, rotation };
+  return { kind, x, y, z, rotation, support };
 }
 
 export function validateBuild(
   state: GameState,
   world: WorldDefinition,
-  p: PlayerState,
-  b: Omit<Building, 'id' | 'owner'>,
+  player: PlayerState,
+  building: BuildingPlacement,
 ): Result {
-  const fail = (message: string) => ({ ok: false, message });
+  const fail = (message: string): Result => ({ ok: false, message });
+  const b = building;
   if (state.buildings.length >= BALANCE.maxBuildings)
     return fail('This world has reached its building limit.');
-  if (distance2(p.position, b) > BALANCE.buildRange || Math.abs(p.position.y - b.y) > 7)
+  if (
+    Math.abs(b.x) > WORLD_HALF - 3 ||
+    Math.abs(b.z) > WORLD_HALF - 3 ||
+    distance2(player.position, b) > BALANCE.buildRange ||
+    Math.abs(player.position.y - b.y) > 7
+  )
     return fail('Move closer to build.');
   if (b.y < 1 || terrainFloor(state.terrain, world, b.x, b.z, b.y + 0.1) < 0.5)
     return fail('Find dry ground.');
-  if (!lineOfSight(state, p, b.x, b.y + 0.5, b.z, world))
-    return fail('Terrain or a structure blocks this spot.');
-  const w = b.kind === 'foundation' ? 1.9 : b.kind === 'wall' ? (b.rotation % 2 ? 0.1 : 1.9) : 0.6;
-  const d = b.kind === 'wall' ? (b.rotation % 2 ? 1.9 : 0.1) : w;
-  for (const dx of [-w, 0, w])
-    for (const dz of [-d, 0, d]) {
-      if (
-        !terrainBodyClear(
-          state.terrain,
-          world,
-          b.x + dx,
-          b.y,
-          b.z + dz,
-          0,
-          b.kind === 'wall' ? 3 : b.kind === 'foundation' ? 1.8 : 0.7,
-        )
-      )
-        return fail('Excavate more room for this structure.');
-    }
-  if (!p.dev.freeBuild && !canAfford(p.inventory, BUILDINGS[b.kind].cost))
-    return fail('You need more materials.');
-  if (b.kind === 'wall') {
-    if (
-      !state.buildings.some(
-        (f) =>
-          f.kind === 'foundation' &&
-          Math.abs(f.y - b.y) < 0.01 &&
-          Math.abs(distance2(f, b) - 2) < 0.01,
-      )
+  if (
+    !lineOfSight(
+      state,
+      player,
+      b.x,
+      b.y + (isWall(b.kind) ? 1.5 : 0.5),
+      b.z,
+      world,
+      b.kind === 'door' ? (b.support ?? undefined) : undefined,
     )
-      return fail('Walls need a nearby foundation.');
-  }
-  const extent = b.kind === 'foundation' ? 1.95 : b.kind === 'wall' ? 0 : 0.8;
+  )
+    return fail('Terrain or a structure blocks this spot.');
+  if (!player.dev.freeBuild && !canAfford(player.inventory, BUILDINGS[b.kind].cost))
+    return fail('You need more materials.');
+  const support = state.buildings.find((s) => s.id === b.support);
+  if ((isWall(b.kind) || b.kind === 'stairs') && (!support || !isPlatform(support.kind)))
+    return fail('Walls and stairs need a nearby foundation or upper floor.');
+  if (isUpper(b.kind) && (!support || !isWall(support.kind)))
+    return fail('Build a supporting wall on the storey below first.');
+  if (b.kind === 'door' && support?.kind !== 'doorway') return fail('Doors need an empty doorway.');
+  let root = support,
+    depth = 0;
+  while (root?.support && depth++ < BALANCE.maxBuildings)
+    root = state.buildings.find((s) => s.id === root!.support);
+  // The last usable floor still needs a roof one storey above it.
+  const maximumHeight = (BALANCE.maxStoreys - (b.kind === 'roof' ? 0 : 1)) * 3;
+  if (root && b.y - root.y > maximumHeight + 0.01)
+    return fail(`Build up to ${BALANCE.maxStoreys} storeys above a foundation.`);
   if (b.kind === 'foundation') {
     const heights = [-2, 2].flatMap((dx) =>
       [-2, 2].map((dz) => terrainFloor(state.terrain, world, b.x + dx, b.z + dz, b.y + 0.1)),
     );
     if (Math.max(...heights) - Math.min(...heights) > 1.7) return fail('The ground is too steep.');
   }
-  const overlaps = (x: number, z: number, radius: number) =>
-    b.kind === 'wall'
-      ? wallContains({ ...b, id: '', owner: '' }, x, z, radius)
-      : Math.abs(x - b.x) < extent + radius && Math.abs(z - b.z) < extent + radius;
-  for (const other of state.buildings) {
+  const solids = structureSolids(b);
+  for (const solid of solids) {
+    for (const dx of [-solid.width / 2 + 0.03, 0, solid.width / 2 - 0.03])
+      for (const dz of [-solid.depth / 2 + 0.03, 0, solid.depth / 2 - 0.03])
+        if (
+          !terrainBodyClear(
+            state.terrain,
+            world,
+            solid.x + dx,
+            Math.max(b.y, solid.y - solid.height / 2),
+            solid.z + dz,
+            0,
+            Math.max(0.1, solid.y + solid.height / 2 - Math.max(b.y, solid.y - solid.height / 2)),
+          )
+        )
+          return fail('Excavate more room for this structure.');
+    for (const other of state.buildings) {
+      // Edge pieces join at their corners; doorway frames surround their door.
+      if (
+        other.id === b.support ||
+        (isWall(b.kind) && isWall(other.kind) && distance2(b, other) > 0.5)
+      )
+        continue;
+      // Ceiling slabs join all wall tops around their room, not only the one
+      // recorded as their structural parent. The reverse permits infill walls.
+      if (
+        Math.abs(distance2(b, other) - 2) < 0.01 &&
+        ((isUpper(b.kind) && isWall(other.kind) && Math.abs(b.y - other.y - 3) < 0.01) ||
+          (isWall(b.kind) && isUpper(other.kind) && Math.abs(other.y - b.y - 3) < 0.01))
+      )
+        continue;
+      if (
+        ((b.kind === 'stairs' &&
+          other.kind === 'stairwell' &&
+          Math.abs(other.y - b.y - 3) < 0.01) ||
+          (b.kind === 'stairwell' &&
+            other.kind === 'stairs' &&
+            Math.abs(b.y - other.y - 3) < 0.01)) &&
+        b.rotation === other.rotation &&
+        distance2(b, other) < 0.01
+      )
+        continue;
+      if (structureSolids(other).some((s) => solidsOverlap(solid, s)))
+        return fail('There is already a structure here. Leave room between pieces.');
+    }
     if (
-      b.y >= other.y + (other.kind === 'wall' ? 3 : 0.8) ||
-      other.y >= b.y + (b.kind === 'wall' ? 3 : 0.8)
+      world.sites.some(
+        (site) =>
+          !state.sites[site.id]?.disabled && siteSolids(site).some((s) => solidsOverlap(solid, s)),
+      )
     )
-      continue;
-    if (other.kind === 'foundation' && b.kind !== 'foundation') continue;
-    if (b.kind === 'foundation' && other.kind === 'wall') continue;
-    if (Math.abs(b.x - other.x) < 0.1 && Math.abs(b.z - other.z) < 0.1)
-      return fail('There is already a structure here.');
+      return fail('Leave room around the landmark.');
+    for (const r of nearbyResources(world, solid.x, solid.z, 5)) {
+      const radius = Math.max(r.kind === 'spring' ? 1 : 0, RESOURCE_TYPES[r.kind].radius * r.scale);
+      if (
+        radius &&
+        resourceIsActive(state, r.id) &&
+        r.y < solid.y + solid.height / 2 &&
+        r.y + (r.kind === 'tree' ? 8 : 2) > solid.y - solid.height / 2 &&
+        containsXZ(solid, r.x, r.z, radius)
+      )
+        return fail('Clear the trees or stone first.');
+    }
     if (
-      b.kind !== 'wall' &&
-      other.kind !== 'wall' &&
-      overlaps(other.x, other.z, other.kind === 'foundation' ? 1.95 : 0.7)
+      Object.values(state.players).some(
+        (p) =>
+          p.health > 0 && bodyIntersects(solid, p.position.x, p.position.y, p.position.z, 0.45),
+      )
     )
-      return fail('Leave room between structures.');
-    if (other.kind === 'wall' && wallContains(other, b.x, b.z, 0.7))
-      return fail('A wall blocks this spot.');
+      return fail('A survivor is standing here.');
+    if (state.animals.some((a) => a.health > 0 && bodyIntersects(solid, a.x, a.y, a.z, 0.45, 1)))
+      return fail('Wildlife is standing here.');
+    if (state.bags.some((bag) => bodyIntersects(solid, bag.x, bag.y, bag.z, 0.25, 0.4)))
+      return fail('Collect the ground supplies first.');
   }
-  for (const r of nearbyResources(world, b.x, b.z, 5)) {
-    if (
-      resourceIsActive(state, r.id) &&
-      b.y + 3 > r.y &&
-      b.y < r.y + (r.kind === 'tree' ? 8 : 2) &&
-      (RESOURCE_TYPES[r.kind].radius > 0 || r.kind === 'spring') &&
-      overlaps(r.x, r.z, Math.max(0.9, RESOURCE_TYPES[r.kind].radius * r.scale))
-    )
-      return fail('Clear the trees or stone first.');
-  }
-  if (
-    Object.values(state.players).some(
-      (other) =>
-        other.health > 0 &&
-        Math.abs(other.position.y - b.y) < 2 &&
-        overlaps(other.position.x, other.position.z, 0.45),
-    )
-  )
-    return fail('A survivor is standing here.');
   return { ok: true, message: `Place ${BUILDINGS[b.kind].name.toLowerCase()}` };
 }

@@ -6,6 +6,10 @@ import { terrainBodyClear, terrainFloor, terrainIndex, TERRAIN } from './terrain
 import type { Animal, GameState, PlayerState } from './state';
 import { SPAWN, terrainHeight, nearbyResources } from './world';
 import type { WorldDefinition } from './world';
+import { structureSolids } from './structure-geometry';
+import { siteSolids } from './site-generation';
+import { bodyIntersects } from './spatial';
+import { damageStructure } from './structures';
 
 export const MAX_ANIMALS = 96;
 export function habitatValid(
@@ -188,8 +192,19 @@ export function stepWildlife(
               groundHeight(state, world, x, z, animal.y + 0.65) - terrain > 0.2 ||
               state.buildings.some(
                 (b) =>
-                  Math.abs(b.y - animal.y) < 3 &&
-                  distance2(b, { x, z }) < (b.kind === 'wall' ? 2.3 : 1),
+                  Math.hypot(b.x - x, b.z - z) < 4 &&
+                  structureSolids(b).some((s) =>
+                    bodyIntersects(s, x, terrain, z, def.radius * 0.5, 1.2),
+                  ),
+              ) ||
+              world.sites.some(
+                (site) =>
+                  Math.abs(site.x - x) < 4 &&
+                  Math.abs(site.z - z) < 4 &&
+                  !state.sites[site.id]?.disabled &&
+                  siteSolids(site).some((s) =>
+                    bodyIntersects(s, x, terrain, z, def.radius * 0.5, 1.2),
+                  ),
               )))
         )
           continue;
@@ -235,6 +250,26 @@ export function stepWildlife(
     ) {
       hurt(target, def.damage * state.tuning.damage, def.name);
       animal.cooldown = 1.4;
+    } else if (chase && animal.cooldown <= 0 && !sea) {
+      const obstruction = state.buildings.find(
+        (b) =>
+          Math.hypot(b.x - animal.x, b.z - animal.z) < 4 &&
+          structureSolids(b).some((s) =>
+            bodyIntersects(
+              s,
+              animal.x + Math.sin(animal.yaw) * 0.7,
+              animal.y,
+              animal.z + Math.cos(animal.yaw) * 0.7,
+              def.radius,
+              1.2,
+            ),
+          ),
+      );
+      if (
+        obstruction &&
+        damageStructure(state, world, obstruction.id, def.damage * state.tuning.damage)
+      )
+        animal.cooldown = 1.4;
     }
   }
 }

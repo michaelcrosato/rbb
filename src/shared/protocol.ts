@@ -3,11 +3,12 @@ import { developerSchema } from './developer';
 import { earthworkSchema } from './earthworks';
 import { terrainUpdate } from './terrain';
 import type { TerrainUpdate } from './terrain';
-import { BUILDING_IDS, ITEM_IDS, RECIPE_IDS } from './content';
+import { BALANCE, BUILDING_IDS, ITEM_IDS, RECIPE_IDS } from './content';
 import type { GameEvent, GameState, PlayerState, Result } from './state';
-import { WORLD_HALF } from './world';
+import { WORLD_HALF, generateWorld } from './world';
+import type { WorldDefinition } from './world';
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 export const moveSchema = z
   .object({
     forward: z.number().finite().min(-1).max(1),
@@ -28,8 +29,55 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('dev'), request: developerSchema }).strict(),
   z.object({ type: z.literal('move'), input: moveSchema }).strict(),
   z.object({ type: z.literal('equip'), item: z.enum(ITEM_IDS) }).strict(),
+  z.object({ type: z.literal('wear'), item: z.enum(ITEM_IDS) }).strict(),
+  z
+    .object({
+      type: z.literal('quick-slot'),
+      item: z.enum(ITEM_IDS),
+      slot: z.number().int().min(0).max(4),
+    })
+    .strict(),
+  z.object({ type: z.literal('attack') }).strict(),
+  z
+    .object({
+      type: z.literal('structure'),
+      target: z.string().min(1).max(64),
+      action: z.enum(['upgrade', 'repair', 'door', 'dismantle']),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('storage'),
+      target: z.string().min(1).max(64),
+      direction: z.enum(['deposit', 'take']),
+      item: z.enum(ITEM_IDS),
+      count: z.number().int().min(1).max(10000),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('drop'),
+      item: z.enum(ITEM_IDS),
+      count: z.number().int().min(1).max(10000),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('collect'),
+      target: z.string().min(1).max(64),
+      item: z.enum(ITEM_IDS).optional(),
+      count: z.number().int().min(1).max(10000).optional(),
+    })
+    .strict()
+    .refine((request) => request.count === undefined || request.item !== undefined),
   z.object({ type: z.literal('interact'), target: z.string().min(1).max(64) }).strict(),
-  z.object({ type: z.literal('craft'), recipe: z.enum(RECIPE_IDS) }).strict(),
+  z
+    .object({
+      type: z.literal('craft'),
+      recipe: z.enum(RECIPE_IDS),
+      count: z.number().int().min(1).max(BALANCE.craftBatchLimit).optional(),
+    })
+    .strict(),
   z.object({ type: z.literal('consume'), item: z.enum(ITEM_IDS) }).strict(),
   z
     .object({
@@ -72,7 +120,7 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 export type PublicPlayer = Pick<
   PlayerState,
-  'id' | 'name' | 'position' | 'yaw' | 'health' | 'equipped'
+  'id' | 'name' | 'position' | 'yaw' | 'health' | 'equipped' | 'worn'
 >;
 export interface Snapshot {
   terrain?: TerrainUpdate;
@@ -89,6 +137,7 @@ export interface Snapshot {
   buildings: GameState['buildings'];
   bags: GameState['bags'];
   animals: GameState['animals'];
+  sites: GameState['sites'];
 }
 export type ServerMessage =
   | { type: 'welcome'; protocol: number; playerId: string; token: string; snapshot: Snapshot }
@@ -103,7 +152,11 @@ export function snapshotFor(
   id: string,
   devAllowed = false,
   terrainSince = -1,
+  world: WorldDefinition = generateWorld(state.seed),
 ): Snapshot {
+  const nearby = (b: { x: number; y: number; z: number }) =>
+    Math.hypot(b.x - state.players[id].position.x, b.z - state.players[id].position.z) <=
+      BALANCE.interactRange && Math.abs(b.y - state.players[id].position.y) <= 3;
   return {
     terrain: terrainUpdate(state.terrain, terrainSince),
     environment: state.environment,
@@ -116,18 +169,36 @@ export function snapshotFor(
     self: state.players[id],
     players: Object.values(state.players)
       .filter((p) => p.id !== id)
-      .map(({ id, name, position, yaw, health, equipped }) => ({
+      .map(({ id, name, position, yaw, health, equipped, worn }) => ({
         id,
         name,
         position,
         yaw,
         health,
         equipped,
+        worn,
       })),
     resources: state.resources,
-    buildings: state.buildings,
+    buildings: state.buildings.map((b) =>
+      b.kind === 'storage' && !nearby(b) ? { ...b, inventory: {} } : b,
+    ),
+    sites: Object.fromEntries(
+      world.sites.map((site) => [
+        site.id,
+        { ...state.sites[site.id], inventory: nearby(site) ? state.sites[site.id].inventory : {} },
+      ]),
+    ),
     // Other players' dropped inventory is revealed only at interaction range.
-    bags: state.bags.map((b) => ({ ...b, inventory: b.owner === id ? b.inventory : {} })),
+    bags: state.bags.map((b) => ({
+      ...b,
+      inventory:
+        b.owner === id ||
+        (Math.hypot(b.x - state.players[id].position.x, b.z - state.players[id].position.z) <=
+          BALANCE.interactRange &&
+          Math.abs(b.y - state.players[id].position.y) <= 3)
+          ? b.inventory
+          : {},
+    })),
     animals: state.animals,
   };
 }

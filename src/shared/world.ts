@@ -1,5 +1,7 @@
 import { clamp, hashString, lerp, noise, random } from './math';
 import type { ResourceKind } from './content';
+import { generateSites } from './site-generation';
+import type { WorldSite } from './site-generation';
 
 export const WORLD_VERSION = 1;
 export const WORLD_SIZE = 640;
@@ -24,6 +26,7 @@ export interface WorldDefinition {
   resources: Resource[];
   resourceMap: Map<string, Resource>;
   cells: Map<string, Resource[]>;
+  sites: WorldSite[];
 }
 
 /** Heights at grid vertices. Keep versioned: changing this changes every saved world's topology. */
@@ -106,13 +109,21 @@ export function generateWorld(seed: string): WorldDefinition {
     if (resources.some((r) => Math.hypot(x - r.x, z - r.z) < (kind === 'tree' ? 4.2 : 3))) continue;
     add(`r${i}`, kind, x, z, 0.75 + rng() * 0.65);
   }
+  const sites = generateSites(seed, resources, (x, z) => terrainHeight(x, z, hash));
   const cells = new Map<string, Resource[]>();
   for (const r of resources) {
     const key = `${Math.floor(r.x / 16)},${Math.floor(r.z / 16)}`;
     if (!cells.has(key)) cells.set(key, []);
     cells.get(key)!.push(r);
   }
-  return { seed, hash, resources, resourceMap: new Map(resources.map((r) => [r.id, r])), cells };
+  return {
+    seed,
+    hash,
+    resources,
+    resourceMap: new Map(resources.map((r) => [r.id, r])),
+    cells,
+    sites,
+  };
 }
 
 export function nearbyResources(

@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { ITEM_IDS, SPECIES_IDS } from './content';
 import { setWeather, tuningSchema, WEATHER_IDS } from './environment';
-import { transact } from './inventory';
+import { carryCapacity, transact } from './inventory';
+import { normalizeEquipment } from './equipment';
+import { damageStructure } from './structures';
 import { groundHeight } from './physics';
 import { brushSchema } from './terrain';
 import { editTerrain, safeTerrainSpawn } from './earthworks';
@@ -112,10 +114,11 @@ export function developerAction(
         berries: 10,
         bandage: 5,
       };
+      normalizeEquipment(p);
       return ok('Playtest kit loaded. Pack replaced.');
     }
     case 'grant': {
-      const result = transact(p.inventory, {}, { [action.item]: action.count });
+      const result = transact(p.inventory, {}, { [action.item]: action.count }, carryCapacity(p));
       return result.ok ? ok(`Granted ${action.count} ${action.item}.`) : result;
     }
     case 'teleport': {
@@ -150,17 +153,26 @@ export function developerAction(
         : { ok: false, message: 'No suitable habitat nearby, or wildlife limit reached (96).' };
     }
     case 'remove': {
+      if (state.buildings.some((b) => b.id === action.id))
+        return damageStructure(state, world, action.id, 1e8)
+          ? ok('Structure and attached pieces removed. Stored supplies dropped.')
+          : { ok: false, message: 'Collect ground supplies before removing occupied storage.' };
       const before = state.animals.length + state.buildings.length + state.bags.length;
       state.animals = state.animals.filter((a) => a.id !== action.id);
-      state.buildings = state.buildings.filter((b) => b.id !== action.id);
       state.bags = state.bags.filter((b) => b.id !== action.id);
       return before !== state.animals.length + state.buildings.length + state.bags.length
         ? ok('Entity removed. Checkpoint can restore it.')
         : { ok: false, message: 'Entity was not found.' };
     }
     case 'regrow': {
-      for (const resource of Object.values(state.resources))
-        if (resource.health <= 0) resource.respawnAt = state.time;
+      for (const [id, resource] of Object.entries(state.resources))
+        if (
+          resource.health <= 0 &&
+          !Object.keys(state.sites).some(
+            (siteId) => state.sites[siteId].disabled && id.startsWith(`${siteId}-node-`),
+          )
+        )
+          resource.respawnAt = state.time;
       return ok('Regrowth queued. Occupied and built areas stay clear.');
     }
   }

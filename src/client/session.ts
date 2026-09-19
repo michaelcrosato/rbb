@@ -72,14 +72,18 @@ export class LocalSession implements Session {
   close(): void {}
 }
 
-const publicPlayer = stateSchema.shape.players.valueType.pick({
-  id: true,
-  name: true,
-  position: true,
-  yaw: true,
-  health: true,
-  equipped: true,
-});
+const playerFields = stateSchema.shape.players.valueType.shape;
+const publicPlayer = z
+  .object({
+    id: playerFields.id,
+    name: playerFields.name,
+    position: playerFields.position,
+    yaw: playerFields.yaw,
+    health: playerFields.health,
+    equipped: playerFields.equipped,
+    worn: playerFields.worn,
+  })
+  .strict();
 const snapshotSchema = z.object({
   terrain: terrainUpdateSchema.optional(),
   environment: stateSchema.shape.environment,
@@ -95,6 +99,7 @@ const snapshotSchema = z.object({
   buildings: stateSchema.shape.buildings,
   bags: stateSchema.shape.bags,
   animals: stateSchema.shape.animals,
+  sites: stateSchema.shape.sites,
 });
 
 /** Commands only. The server owns movement, inventory, world mutations, and time. */
@@ -277,6 +282,7 @@ export class RemoteSession implements Session {
     this.state.buildings = snapshot.buildings;
     this.state.bags = snapshot.bags;
     this.state.animals = snapshot.animals;
+    this.state.sites = snapshot.sites;
   }
 
   command(command: Command): void {
@@ -329,4 +335,4 @@ export class RemoteSession implements Session {
 }
 
 export const getSnapshot = (session: Session, terrainSince = -1): Snapshot =>
-  snapshotFor(session.state, session.playerId, session.devAllowed, terrainSince);
+  snapshotFor(session.state, session.playerId, session.devAllowed, terrainSince, session.world);

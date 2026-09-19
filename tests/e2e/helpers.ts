@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import type { PlayerState, Building, Animal } from '../../src/shared/state';
+import type { PlayerState, Building, Animal, LootBag } from '../../src/shared/state';
 import type { Resource } from '../../src/shared/world';
 import { RESOURCE_TYPES } from '../../src/shared/content';
 
@@ -9,8 +9,13 @@ import type { GraphicsSettings } from '../../src/client/render/settings';
 import type { WorldRenderer } from '../../src/client/render/renderer';
 import type { PublicPlayer } from '../../src/shared/protocol';
 import type { TerrainState, TerrainHit, TerrainBrush } from '../../src/shared/terrain';
+import type { WorldSite } from '../../src/shared/site-generation';
+import type { SiteState } from '../../src/shared/state';
 
 export interface Diagnostics {
+  bags: LootBag[];
+  sites: WorldSite[];
+  siteStates: Record<string, SiteState>;
   terrain: TerrainState;
   terrainMesh: { revision: number; samples: number; editedChunks: number; triangles: number };
   terrainTool: {
@@ -58,6 +63,47 @@ export const diagnostics = (page: Page): Promise<Diagnostics> =>
   page.evaluate(() =>
     (window as unknown as { rbbDiagnostics: () => Diagnostics }).rbbDiagnostics(),
   );
+
+/** Native touch gestures only; diagnostics supplies read-only camera feedback. */
+export async function touchAimAt(page: Page, x: number, y: number, z: number): Promise<void> {
+  const { player, look } = await diagnostics(page);
+  const dx = x - player.position.x,
+    dz = z - player.position.z;
+  const yaw = Math.atan2(-dx, -dz);
+  const pitch = Math.atan2(y - player.position.y - 1.65, Math.hypot(dx, dz));
+  const delta = Math.atan2(Math.sin(yaw - look.yaw), Math.cos(yaw - look.yaw));
+  let remainingX = -delta / (0.0022 * 1.8),
+    remainingY = -(pitch - look.pitch) / (0.0022 * 1.8);
+  const viewport = page.viewportSize()!;
+  const origin = { x: viewport.width * 0.67, y: viewport.height * 0.45 };
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    while (Math.abs(remainingX) > 0.1 || Math.abs(remainingY) > 0.1) {
+      const stepX = Math.max(-60, Math.min(60, remainingX));
+      const stepY = Math.max(-90, Math.min(90, remainingY));
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [{ ...origin, id: 1 }],
+      });
+      for (let step = 1; step <= 4; step++) {
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchMove',
+          touchPoints: [
+            { x: origin.x + (stepX * step) / 4, y: origin.y + (stepY * step) / 4, id: 1 },
+          ],
+        });
+      }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      remainingX -= stepX;
+      remainingY -= stepY;
+    }
+    await expect
+      .poll(async () => Math.abs((await diagnostics(page)).look.pitch - pitch))
+      .toBeLessThan(0.03);
+  } finally {
+    await cdp.detach();
+  }
+}
 
 export async function startSolo(
   page: Page,

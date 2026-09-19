@@ -30,9 +30,9 @@ Balance values such as reach, stroke radius, cooldown, stamina and dirt units be
 
 ## Saves, replication and bounds
 
-Save **v3** stores terrain version 1, a revision and changed samples. Both v1 and v2 saves migrate explicitly to an empty edit layer, preserving world generation version 1. Export/import, browser backups, solo checkpoints and SQLite snapshots include edits. Save files are validated and bounded at 16 MB; available browser storage can be smaller and storage failures still require export.
+Save **v4** stores terrain version 1, a revision and changed samples. Both v1 and v2 saves migrate explicitly to an empty edit layer; v3 edits are retained in v4, preserving world generation version 1. Export/import, browser backups, solo checkpoints and SQLite snapshots include edits. Save files are validated and bounded at 16 MB; available browser storage can be smaller and storage failures still require export.
 
-Network **protocol 3** requires matching clients and servers. A joining or reconnecting client receives a complete terrain baseline. Later snapshots omit unchanged terrain and send revision-based patches, including deleted samples. Bounded in-memory patch history falls back to a baseline when necessary. Other world systems retain their existing full snapshots. Edits and patches are bounded to **160,000 changed samples per world**, on the finite 640 × 640 m island between **−64 and 128 m**. Restoring generated terrain frees sample capacity.
+Network **protocol 4** requires matching clients and servers. A joining or reconnecting client receives a complete terrain baseline. Later snapshots omit unchanged terrain and send revision-based patches, including deleted samples. Bounded in-memory patch history falls back to a baseline when necessary. Other world systems retain their existing full snapshots. Edits and patches are bounded to **160,000 changed samples per world**, on the finite 640 × 640 m island between **−64 and 128 m**. Restoring generated terrain frees sample capacity.
 
 Dirt accounting uses a nodal volume approximation, with gains rounded down and costs rounded up. Repeating cut/fill cycles cannot generate free dirt. It is a gameplay material budget, not a physical soil mass or exact mesh-volume measurement.
 
