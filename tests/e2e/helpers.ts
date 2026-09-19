@@ -64,6 +64,20 @@ export const diagnostics = (page: Page): Promise<Diagnostics> =>
     (window as unknown as { rbbDiagnostics: () => Diagnostics }).rbbDiagnostics(),
   );
 
+export async function waitForMovementStop(page: Page): Promise<void> {
+  // Native keyup can finish before the next client frame sends its idle command.
+  // Observe the simulation/server acknowledgement before sampling a final position.
+  await page.waitForFunction(
+    () => {
+      const input = (window as unknown as { rbbDiagnostics: () => Diagnostics }).rbbDiagnostics()
+        .player.input;
+      return input.forward === 0 && input.strafe === 0;
+    },
+    undefined,
+    { timeout: 8000 },
+  );
+}
+
 /** Native touch gestures only; diagnostics supplies read-only camera feedback. */
 export async function touchAimAt(page: Page, x: number, y: number, z: number): Promise<void> {
   const { player, look } = await diagnostics(page);
@@ -231,6 +245,7 @@ export async function walkTo(page: Page, x: number, z: number, stop = 0.7): Prom
       // Install the observer before keydown and release immediately when it resolves,
       // even if the keydown acknowledgement is still waiting for a slow render frame.
       await Promise.all([page.keyboard.down('KeyW'), moved.then(() => page.keyboard.up('KeyW'))]);
+      await waitForMovementStop(page);
     } catch (error) {
       await page.keyboard.up('KeyW');
       throw error;
