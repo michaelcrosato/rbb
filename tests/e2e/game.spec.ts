@@ -7,6 +7,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+// Concurrent software WebGL scenes can delay trace copies before inputs/reads.
+// Keep action/source traces and explicit milestone/failure images, as in multiplayer.
+test.use({
+  trace: { mode: 'retain-on-failure', screenshots: false, snapshots: false, sources: true },
+});
+
 test('survivor gathers, crafts, builds, exports and resumes a saved expedition', async ({
   page,
 }, testInfo) => {
@@ -148,14 +154,24 @@ test('a graphics-context interruption pauses solo play and reload restores the s
 test('two browsers join a persistent authoritative world and resume a survivor', async ({
   browser,
 }, testInfo) => {
-  const contexts = await Promise.all([browser.newContext(), browser.newContext()]);
+  const contextOptions = { viewport: { width: 1024, height: 640 }, deviceScaleFactor: 0.5 };
+  const contexts = await Promise.all([
+    browser.newContext(contextOptions),
+    browser.newContext(contextOptions),
+  ]);
   const [a, b] = await Promise.all(contexts.map((c) => c.newPage()));
   try {
     for (const page of [a, b]) {
       await page.goto('/');
-      await page.getByRole('button', { name: 'Join a world' }).click();
+      await page.getByRole('button', { name: 'Settings', exact: true }).press('Enter');
+      await page.locator('#quality').selectOption('mobile');
+      await page.getByText('Rendering effects', { exact: true }).press('Enter');
+      await page.locator('[data-graphics="resolutionScale"]').fill('0.5');
+      await page.locator('[data-graphics="viewDistance"]').fill('0.5');
+      await page.getByRole('button', { name: 'Apply settings' }).press('Enter');
+      await page.getByRole('button', { name: 'Join a world' }).press('Enter');
       await page.locator('#server-url').fill('ws://127.0.0.1:8788');
-      await page.getByRole('button', { name: 'Join world', exact: true }).click();
+      await page.getByRole('button', { name: 'Join world', exact: true }).press('Enter');
       await expect(page.locator('#hud')).toBeVisible();
       await expect.poll(async () => (await diagnostics(page)).mode).toBe('online');
     }
@@ -163,9 +179,9 @@ test('two browsers join a persistent authoritative world and resume a survivor',
     await b.keyboard.press('Escape');
     await b.screenshot({ path: testInfo.outputPath('shared-world.png') });
     await a.reload();
-    await a.getByRole('button', { name: 'Join a world' }).click();
+    await a.getByRole('button', { name: 'Join a world' }).press('Enter');
     await a.locator('#server-url').fill('ws://127.0.0.1:8788');
-    await a.getByRole('button', { name: 'Join world', exact: true }).click();
+    await a.getByRole('button', { name: 'Join world', exact: true }).press('Enter');
     await expect.poll(async () => (await diagnostics(a)).player?.id).toBe(id);
   } finally {
     await Promise.all(contexts.map((c) => c.close()));
