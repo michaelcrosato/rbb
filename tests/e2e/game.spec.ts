@@ -74,9 +74,11 @@ test('menu, settings, pause, movement and jump work without browser errors', asy
   await page.getByRole('button', { name: 'Apply settings' }).click();
   await page.getByRole('button', { name: 'Enter the frontier' }).click();
   await page.keyboard.down('KeyS');
-  await page.waitForTimeout(500);
-  await page.keyboard.up('KeyS');
-  expect((await diagnostics(page)).player.position.z).toBeGreaterThan(87);
+  try {
+    await expect.poll(async () => (await diagnostics(page)).player.position.z).toBeGreaterThan(87);
+  } finally {
+    await page.keyboard.up('KeyS');
+  }
   const jumped = page.waitForFunction(
     () =>
       (window as unknown as { rbbDiagnostics: () => Diagnostics }).rbbDiagnostics().player.position
