@@ -2,6 +2,12 @@
 
 Frontier progression and editable terrain verification recorded on 2026-09-19 Pacific. This ledger distinguishes implementation, automated evidence, and physical-device QA. The [public CI history](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml) records checks for each revision. Earlier release evidence is retained below as a historical baseline.
 
+## Hosted health runtime · 2026-09-19
+
+The expansion merged after every PR check passed. Its production readiness check then found `/api/health` failing during Node module loading: the endpoint imported the full protocol graph through an extensionless path, which the bundler-based unit check accepted. The endpoint now imports a dependency-free protocol-version module with an explicit `.js` path and uses the native JSON import attribute for package metadata. Protocol 4 remains unchanged and shared by the endpoint, client and server.
+
+A new regression emits the endpoint and dependencies using TypeScript's NodeNext rules, then invokes the emitted JavaScript with native Node and checks the response and cache header. It failed on the original imports and passes with the fix. `npm run check` passes **139 unit/integration tests**, types, lint and both builds; formatting and all **33 browser scenarios** pass on Node 24.20.0 (3.8 minutes, zero retries). Hosted preview and production verification are separate from these local checks.
+
 ## Frontier progression · 2026-09-19
 
 - `npm run check` passes TypeScript, ESLint, **138 unit/integration tests** and both production builds; `npm run format:check` passes. The final combined `npm run test:e2e` run passes **33 desktop/touch scenarios** in 3.8 minutes with zero retries, after the input and test-driver fixes below. New progression journeys report no browser exceptions or WebGL validation errors. The local environment is Windows / Node 24.20.0 with Vite on port 5174 (`RBB_TEST_PORT=5174`); another project uses 5173. These checks describe the `codex/frontier-progression` implementation; deployment status is tracked separately in GitHub.

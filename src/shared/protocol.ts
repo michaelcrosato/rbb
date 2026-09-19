@@ -7,8 +7,9 @@ import { BALANCE, BUILDING_IDS, ITEM_IDS, RECIPE_IDS } from './content';
 import type { GameEvent, GameState, PlayerState, Result } from './state';
 import { WORLD_HALF, generateWorld } from './world';
 import type { WorldDefinition } from './world';
+import { PROTOCOL_VERSION } from './protocol-version';
 
-export const PROTOCOL_VERSION = 4;
+export { PROTOCOL_VERSION } from './protocol-version';
 export const moveSchema = z
   .object({
     forward: z.number().finite().min(-1).max(1),
