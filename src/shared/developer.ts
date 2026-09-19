@@ -3,12 +3,15 @@ import { ITEM_IDS, SPECIES_IDS } from './content';
 import { setWeather, tuningSchema, WEATHER_IDS } from './environment';
 import { transact } from './inventory';
 import { groundHeight } from './physics';
+import { brushSchema } from './terrain';
+import { editTerrain, safeTerrainSpawn } from './earthworks';
 import { idleInput } from './state';
 import type { GameState, PlayerState, Result } from './state';
 import { spawnWildlife } from './wildlife';
 import type { WorldDefinition } from './world';
 
 export const developerSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('terrain'), brush: brushSchema }).strict(),
   z
     .object({
       action: z.literal('ground'),
@@ -69,6 +72,11 @@ export function developerAction(
     return { ok: true, message };
   };
   switch (action.action) {
+    case 'terrain': {
+      const result = editTerrain(state, world, p, action.brush, true);
+      if (result.ok) state.sandbox = true;
+      return result;
+    }
     case 'ground':
       state.environment.wetness = action.wetness;
       state.environment.snowCover = action.snowCover;
@@ -94,6 +102,7 @@ export function developerAction(
     case 'kit': {
       // An explicit replacement keeps kits repeatable and under the standard carry limit.
       p.inventory = {
+        dirt: 100,
         rock: 1,
         hatchet: 1,
         pickaxe: 1,
@@ -122,7 +131,10 @@ export function developerAction(
     }
     case 'flag':
       p.dev[action.flag] = action.value;
-      if (action.flag === 'flight') p.velocityY = 0;
+      if (action.flag === 'flight') {
+        p.velocityY = 0;
+        if (!action.value) p.position = safeTerrainSpawn(state, world, p.position);
+      }
       return ok(`${action.flag}: ${action.value ? 'on' : 'off'}.`);
     case 'spawn': {
       const n = spawnWildlife(

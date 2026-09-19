@@ -17,6 +17,10 @@ Keep data serializable. Extend the typed command schema only for player intent, 
 
 For complex additions, split systems out of `Simulation` by ownership: combat, crafting, building, metabolism, etc. The simulation remains the transaction boundary; rendering and network transport remain adapters. Avoid a general-purpose ECS or plug-in loader until concrete entity/system growth justifies one.
 
+## Terrain systems
+
+Use `shared/terrain.ts` for field queries and brush planning, and `shared/earthworks.ts` for validated gameplay transactions. Never use the generated heightfield alone for live collision, cave placement or interaction visibility. Keep density semantics and mesh interpolation identical. Terrain bounds, migration requirements and command ownership are documented in [the terrain guide](terrain.md).
+
 ## Networking
 
 `clientMessageSchema` rejects unknown fields, invalid numbers and content IDs. Extend protocol versions deliberately when old clients cannot interpret new snapshots. Every new command needs server tests for authority and replay behavior. Avoid sending private state about other players. Remote camera smoothing is present; client prediction/reconciliation and interpolated remote actors should be added with network impairment tests before faster combat.

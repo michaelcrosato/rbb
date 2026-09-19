@@ -68,7 +68,7 @@ Dedicated servers deny all developer mutations by default. `ALLOW_DEV_TOOLS=true
 
 The default quiet-frontier population is **56 animals: 42 land and 14 marine**. Boars defend territory; wolves pursue within a home leash; deer, foxes and rabbits flee threats; fish, turtles and dolphins stay in suitable water. Deer and fish can form small groups. Navigation checks terrain, obstacles and habitat; respawn avoids nearby survivors and construction. Models have species-specific silhouettes and animated limbs/fins. Wildlife motion interpolates between snapshots. This is lightweight habitat-aware AI, not a navmesh ecosystem or flocking simulation.
 
-Save version 2 persists environment, tuning, oxygen, species and developer flags. Explicit v1 migration retains the existing island, inventory, buildings, timers and boars, then seeds the added species. World-generation version remains 1. Network protocol is now 2: update clients and dedicated servers together. Old clients are rejected cleanly rather than interpreting the new state incorrectly.
+Save version 3 persists environment, tuning, oxygen, species, developer flags and sparse terrain edits. Explicit v1/v2 migrations retain the existing island and progress; v1 migration also seeds the added species. World-generation version remains 1. Network protocol is now 3: update clients and dedicated servers together. Old clients are rejected cleanly rather than interpreting the new state incorrectly. The [terrain guide](terrain.md) describes volumetric caves, sculpting, dirty mesh updates and terrain replication.
 
 ## Further rendering work
 

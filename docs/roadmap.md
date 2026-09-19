@@ -43,6 +43,17 @@ These implementations have bounded budgets and documented quality limits. Physic
 
 Player-hosted browser sessions, automatic relays/server discovery, reserved reconnect slots, chat and client prediction remain future work. A running persistent world server is required; the hosting walkthrough covers localhost, LAN and a public WSS deployment.
 
+## Editable terrain foundation
+
+- [x] Sparse volumetric terrain preserving seeded islands; pits, overhangs, cave floors/ceilings and fill.
+- [x] Player pickaxe excavation, dirt deposition and flattening through authoritative commands.
+- [x] Developer sphere/box brushes, numeric placement, strength, smoothing, restoration and whole-world checkpoints.
+- [x] Terrain-aware collision, resource displacement, wildlife, line of sight and underground building placement.
+- [x] Save v3 migrations and protocol 3 terrain baselines/deltas with bounded edit capacity.
+- [x] Desktop/mobile regression run and final QA audit, with finite terrain, persistence and presentation limits recorded in [QA](qa.md#editable-terrain--2026-09-19).
+
+[Terrain architecture, controls and limits](terrain.md). Subsequent terrain extensions include separate materials, flowing water and sealed water volumes, structural collapse if desired, larger-world streaming, and more complete underground weather/lighting isolation.
+
 ## Engineering follow-ups from the 2026-09-14 audit
 
 Verified by reading the code, deferred because each needs browser or hardware evidence before it is clearly worth its risk:
@@ -53,7 +64,7 @@ Verified by reading the code, deferred because each needs browser or hardware ev
 - `PostEffects.configure` disposes the whole post graph on any graphics change, including exposure or view distance. Rebuild only when a key the graph consumes changes; apply scalars as uniform updates. GTAO still rasterizes its own normal pre-pass although the shared depth/normal buffers exist.
 - `renderer.ts` owns culling tables, collision-debug geometry, actor interpolation, camp lights and auto-quality. Split by ownership, and derive the height-map encoding constants in the water, buffer and fog shaders from `WORLD_HALF`/`WORLD_SIZE`.
 - Browser suites capture errors with three different strictness levels; share one fixture with the WebGL regex, and replace the remaining fixed-sleep movement assertions with condition waits. `RemoteSession` reconnect and backoff have no fake-socket unit test.
-- Snapshots are full state at 10 Hz per client (about 47 KB each with a 400-piece camp). Interest management or deltas come before larger worlds or player counts.
+- Non-terrain snapshots remain full state at 10 Hz per client (about 47 KB each with a 400-piece camp). Terrain now uses revision patches. General interest management and entity deltas remain prerequisites for larger worlds or player counts.
 
 ## Subsequent iterations
 

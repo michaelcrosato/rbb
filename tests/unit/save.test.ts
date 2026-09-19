@@ -38,7 +38,7 @@ describe('versioned saves and recovery', () => {
   it('rejects invalid versions, counts, unknown content, missing players, huge files and invalid JSON', () => {
     for (const mutate of [
       (s: ReturnType<typeof fixture>) => {
-        s.version = 99 as 2;
+        s.version = 99 as 3;
       },
       (s: ReturnType<typeof fixture>) => {
         s.players.local.inventory.wood = -1;
@@ -57,7 +57,7 @@ describe('versioned saves and recovery', () => {
       mutate(state);
       expect(() => parseSave(encodeSave(state, 'local'))).toThrow();
     }
-    expect(() => parseSave('x'.repeat(2_000_001))).toThrow();
+    expect(() => parseSave('x'.repeat(16_000_001))).toThrow();
     expect(() => parseSave('{bad')).toThrow();
     const raw = encodeSave(fixture(), 'local').replace('"rock":1', '"adminWeapon":1');
     expect(() => parseSave(raw)).toThrow();

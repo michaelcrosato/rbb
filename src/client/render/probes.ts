@@ -45,7 +45,8 @@ export class IrradianceProbes {
     private renderer: THREE.WebGLRenderer,
     private scene: THREE.Scene,
     private hooks: MaterialHooks,
-    private world: WorldDefinition,
+    world: WorldDefinition,
+    private height = (x: number, z: number) => terrainHeight(x, z, world.hash),
   ) {
     this.texture.needsUpdate = true;
     this.camera.coordinateSystem = THREE.WebGLCoordinateSystem;
@@ -126,7 +127,7 @@ export class IrradianceProbes {
       const origin = this.uniforms.rbbProbeOrigin.value;
       const px = origin.x + (this.probe % 3) * SPACING,
         pz = origin.y + Math.floor(this.probe / 3) * SPACING;
-      this.camera.position.set(px, Math.max(0, terrainHeight(px, pz, this.world.hash)) + 2.5, pz);
+      this.camera.position.set(px, Math.max(0, this.height(px, pz)) + 2.5, pz);
       this.camera.updateMatrixWorld(true);
     }
     const visibility = new Map<THREE.Object3D, boolean>();

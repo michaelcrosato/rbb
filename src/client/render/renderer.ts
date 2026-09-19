@@ -17,7 +17,9 @@ import {
   survivorModel,
   toolModel,
 } from './models';
-import { createTerrain } from './terrain';
+import { EditableTerrain } from './terrain';
+import { lineOfSight } from '../../shared/physics';
+import type { TerrainBrush } from '../../shared/terrain';
 import { BuildingBatches } from './buildings';
 import { Atmosphere } from './atmosphere';
 import { Ocean, SurfaceEffects } from './surfaces';
@@ -122,6 +124,13 @@ export class WorldRenderer {
     gpuMs: null as number | null,
     gpuP95Ms: null as number | null,
   };
+  private terrain!: EditableTerrain;
+  get terrainRevision(): number {
+    return this.terrain.revision;
+  }
+  get terrainDiagnostics() {
+    return this.terrain.diagnostics;
+  }
   private readonly resources = new Map<string, InstanceRef>();
   private readonly buildings = new BuildingBatches();
   private readonly cullables: {
@@ -159,6 +168,18 @@ export class WorldRenderer {
     2048,
   );
   private readonly selection: THREE.Mesh;
+  private readonly terrainBrush = new THREE.Group();
+  private readonly terrainSphere = new THREE.Group();
+  private readonly terrainBox = new THREE.Mesh(
+    new THREE.BoxGeometry(2, 2, 2),
+    new THREE.MeshBasicMaterial({
+      color: '#efd695',
+      wireframe: true,
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+    }),
+  );
   private readonly hand = new THREE.Group();
   private preview: THREE.Group | null = null;
   private previewKind: BuildingKind | null = null;
@@ -282,6 +303,29 @@ export class WorldRenderer {
     this.selection.visible = false;
     this.selection.userData.rbbExcludeBuffers = true;
     this.scene.add(this.selection);
+    for (let axis = 0; axis < 3; axis++) {
+      const points = Array.from(
+        { length: 64 },
+        (_, i) =>
+          new THREE.Vector3(Math.cos((i / 64) * Math.PI * 2), Math.sin((i / 64) * Math.PI * 2), 0),
+      );
+      const ring = new THREE.LineLoop(
+        new THREE.BufferGeometry().setFromPoints(points),
+        new THREE.LineBasicMaterial({
+          color: '#efd695',
+          transparent: true,
+          opacity: 0.8,
+          depthWrite: false,
+        }),
+      );
+      if (axis === 1) ring.rotation.x = Math.PI / 2;
+      if (axis === 2) ring.rotation.y = Math.PI / 2;
+      this.terrainSphere.add(ring);
+    }
+    this.terrainBrush.add(this.terrainSphere, this.terrainBox);
+    this.terrainBrush.visible = false;
+    this.terrainBrush.userData.rbbExcludeBuffers = true;
+    this.scene.add(this.terrainBrush);
     this.hand.position.set(0.45, -0.42, -0.72);
     this.camera.add(this.hand);
     this.scene.add(this.camera);
@@ -307,8 +351,9 @@ export class WorldRenderer {
     this.actors.clear();
     this.loot.clear();
     this.world = world;
-    this.ocean.setWorld(world);
-    const terrain = createTerrain(world);
+    this.terrain = new EditableTerrain(world);
+    this.ocean.setWorld(world, (x, z) => this.terrain.height(x, z));
+    const terrain = this.terrain.group;
     this.worldGroup.add(terrain);
     const groundMaterials = new Set<THREE.MeshStandardMaterial>();
     terrain.traverse((o) => {
@@ -324,7 +369,9 @@ export class WorldRenderer {
           radius: object.geometry.boundingSphere.radius,
           kind: 'terrain',
         });
-    for (const chunk of this.cullables) chunk.object.castShadow = this.graphics.cascadedShadows;
+    for (const chunk of this.cullables)
+      chunk.object.castShadow =
+        this.graphics.cascadedShadows || !!chunk.object.userData.terrainEdited;
     const buckets = new Map<string, Resource[]>();
     for (const resource of world.resources) {
       const key = `${resource.kind}:${Math.floor(resource.x / 64)},${Math.floor(resource.z / 64)}`;
@@ -462,7 +509,8 @@ export class WorldRenderer {
     this.cascades.configure(graphics, tier);
     this.configureInfrastructure();
     for (const chunk of this.cullables)
-      if (chunk.kind === 'terrain') chunk.object.castShadow = graphics.cascadedShadows;
+      if (chunk.kind === 'terrain')
+        chunk.object.castShadow = graphics.cascadedShadows || !!chunk.object.userData.terrainEdited;
     this.sun.shadow.mapSize.setScalar(tier === 'high' ? 2048 : 1024);
     this.sun.shadow.map?.dispose();
     this.sun.shadow.map = null;
@@ -489,6 +537,19 @@ export class WorldRenderer {
   }
 
   sync(snapshot: Snapshot): void {
+    if (this.terrain.update(snapshot.terrain)) {
+      this.ocean.updateTerrain(snapshot.terrain!);
+      this.visibility.reset();
+      for (const c of this.cullables)
+        if (c.kind === 'terrain' && c.object instanceof THREE.Mesh) {
+          c.center = c.object.geometry.boundingSphere!.center;
+          c.radius = c.object.geometry.boundingSphere!.radius;
+          c.object.castShadow = this.graphics.cascadedShadows || !!c.object.userData.terrainEdited;
+        }
+      this.visibility.configure(this.graphics, this.cullables);
+      this.post.frame.reset('terrain changed');
+      this.probes?.invalidate();
+    }
     if (
       Math.abs(snapshot.environment.hours - this.environment.hours) > 0.1 ||
       snapshot.environment.weather !== this.environment.weather ||
@@ -643,7 +704,8 @@ export class WorldRenderer {
       if (
         Math.hypot(x - player.position.x, z - player.position.z) <= BALANCE.interactRange &&
         dot > threshold &&
-        dot - dist * 0.013 > bestScore
+        dot - dist * 0.013 > bestScore &&
+        lineOfSight(state, player, x, y, z, this.world)
       ) {
         best = target;
         bestScore = dot - dist * 0.013;
@@ -711,6 +773,16 @@ export class WorldRenderer {
       this.selection.scale.setScalar(target.resource?.kind === 'rock' ? 2 : 1);
     }
     return best;
+  }
+
+  showTerrainBrush(brush: TerrainBrush | null): void {
+    this.terrainBrush.visible = !!brush;
+    if (!brush) return;
+    this.selection.visible = false;
+    this.terrainBrush.position.set(brush.x, brush.y, brush.z);
+    this.terrainBrush.scale.setScalar(brush.radius);
+    this.terrainSphere.visible = brush.shape === 'sphere';
+    this.terrainBox.visible = brush.shape === 'box';
   }
 
   showPreview(building: Omit<Building, 'id' | 'owner'> | null, valid: boolean): void {

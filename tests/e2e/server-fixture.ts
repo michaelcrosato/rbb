@@ -4,7 +4,13 @@ import { join } from 'node:path';
 import { startWorldServer } from '../../server/app';
 
 const dir = await mkdtemp(join(tmpdir(), 'rbb-e2e-'));
-const server = await startWorldServer({ port: 8788, host: '127.0.0.1', dataDir: dir });
+import { testOrigins } from './server-options';
+const server = await startWorldServer({
+  port: 8788,
+  host: '127.0.0.1',
+  dataDir: dir,
+  allowedOrigins: testOrigins,
+});
 const stop = () => {
   void server
     .close()

@@ -27,6 +27,7 @@ interface Client {
   socket: WebSocket;
   playerId?: string;
   lastSeq: number;
+  terrainRevision: number;
   lastInput: number;
   lastPong: number;
   limiter: TokenBucket;
@@ -168,8 +169,9 @@ export async function startWorldServer(options: ServerOptions = {}) {
     }
     socket.send(JSON.stringify(message));
   };
-  const snapshot = (id: string) => {
-    const result = snapshotFor(sim.state, id, sim.devAllowed);
+  const snapshot = (client: Client) => {
+    const result = snapshotFor(sim.state, client.playerId!, sim.devAllowed, client.terrainRevision);
+    client.terrainRevision = sim.state.terrain.revision;
     const active = new Set([...clients.values()].map((c) => c.playerId));
     result.players = result.players.filter((p) => active.has(p.id));
     return result;
@@ -179,6 +181,7 @@ export async function startWorldServer(options: ServerOptions = {}) {
     const client: Client = {
       socket,
       lastSeq: 0,
+      terrainRevision: -1,
       lastInput: now,
       lastPong: now,
       limiter: new TokenBucket(65, 90),
@@ -277,7 +280,7 @@ export async function startWorldServer(options: ServerOptions = {}) {
           protocol: PROTOCOL_VERSION,
           playerId,
           token: token!,
-          snapshot: snapshot(playerId),
+          snapshot: snapshot(client),
         });
       } else if (message.type === 'ping') send(socket, { type: 'pong', at: message.at });
       else if (message.type === 'command') {
@@ -307,7 +310,7 @@ export async function startWorldServer(options: ServerOptions = {}) {
         if (message.command.type === 'move') client.lastInput = performance.now();
         const result = sim.command(client.playerId, message.command);
         if (message.command.type === 'dev' && result.ok)
-          send(socket, { type: 'snapshot', snapshot: snapshot(client.playerId) });
+          send(socket, { type: 'snapshot', snapshot: snapshot(client) });
         if (
           message.command.type !== 'move' &&
           (!result.ok || message.command.type === 'respawn' || message.command.type === 'dev')
@@ -354,7 +357,7 @@ export async function startWorldServer(options: ServerOptions = {}) {
         if (sim.state.tick % 3 === 0)
           for (const client of clients.values())
             if (client.playerId)
-              send(client.socket, { type: 'snapshot', snapshot: snapshot(client.playerId) });
+              send(client.socket, { type: 'snapshot', snapshot: snapshot(client) });
       }
       const events = sim.drainEvents();
       for (const client of clients.values())

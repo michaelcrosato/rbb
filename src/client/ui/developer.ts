@@ -1,6 +1,7 @@
 import { ITEM_IDS, ITEMS, MAX_WEIGHT, SPECIES_IDS, WILDLIFE } from '../../shared/content';
 import type { GameState, PlayerState } from '../../shared/state';
 import { WEATHER_IDS } from '../../shared/environment';
+import { TERRAIN, TERRAIN_MODES } from '../../shared/terrain';
 import { MAX_ANIMALS } from '../../shared/wildlife';
 import type { Tuning } from '../../shared/environment';
 import type { RenderSettings } from '../render/renderer';
@@ -8,7 +9,7 @@ import { ADVANCED_FEATURES } from '../render/settings';
 import type { GraphicsSettings } from '../render/settings';
 import { escapeHtml as esc } from './icons';
 
-export type DeveloperTab = 'quick' | 'advanced' | 'graphics' | 'inspect';
+export type DeveloperTab = 'quick' | 'advanced' | 'graphics' | 'inspect' | 'terrain';
 const button = (label: string, action: string, value = '') =>
   `<button class="button secondary" data-action="dev-${action}" data-value="${esc(value)}">${label}</button>`;
 export const TUNING_FIELDS: Record<keyof Tuning, [string, number, number, number, string]> = {
@@ -149,10 +150,10 @@ export function developerMarkup(
   checkpoint: boolean,
   paused: boolean,
 ): string {
-  const tabs = (['quick', 'advanced', 'graphics', 'inspect'] as const)
+  const tabs = (['quick', 'terrain', 'advanced', 'graphics', 'inspect'] as const)
     .map(
       (t) =>
-        `<button role="tab" aria-selected="${tab === t}" data-action="dev-tab" data-value="${t}">${{ quick: 'Quick tools', advanced: 'World variables', graphics: 'Rendering', inspect: 'Inspector' }[t]}</button>`,
+        `<button role="tab" aria-selected="${tab === t}" data-action="dev-tab" data-value="${t}">${{ quick: 'Quick tools', terrain: 'Terrain', advanced: 'World variables', graphics: 'Rendering', inspect: 'Inspector' }[t]}</button>`,
     )
     .join('');
   let body: string;
@@ -169,6 +170,16 @@ export function developerMarkup(
     <div class="dev-flags">${(['invincible', 'flight', 'freeBuild'] as const).map((flag) => `<label class="check"><input type="checkbox" data-dev-flag="${flag}" ${p.dev[flag] ? 'checked' : ''}>${{ invincible: 'Invincible', flight: 'Fly / noclip', freeBuild: 'Free building' }[flag]}</label>`).join('')}</div><p class="muted small">Flight: look where you want to go and press W. Hold Space/Jump to rise; C/Dive to descend. Free building keeps placement and world limits.</p></section>
     <section><h3>Wildlife</h3><div class="dev-inline"><label>Species<select id="dev-species">${SPECIES_IDS.map((s) => `<option value="${s}">${WILDLIFE[s].name} · ${WILDLIFE[s].habitat}</option>`).join('')}</select></label><label>Count<input id="dev-count" type="number" min="1" max="10" value="1"></label>${button('Spawn nearby', 'spawn')}</div><p class="muted small">Marine species need deep water nearby. ${MAX_ANIMALS} animal limit.</p></section>
     <section><h3>Repeat a test</h3><div class="dev-buttons">${button(paused ? 'Run simulation' : 'Pause simulation', 'pause')}${button('Step one second', 'step', '30')}${button('Step ten seconds', 'step', '300')}${button('Regrow resources', 'regrow')}${button('Capture checkpoint', 'checkpoint')}<button class="button secondary" data-action="dev-restore" ${checkpoint ? '' : 'disabled'}>Restore checkpoint</button></div><p class="muted small">Solo checkpoints include the whole expedition. The original is captured before your first change. Online testers use the host’s world backups.</p></section>`;
+  else if (tab === 'terrain')
+    body = `<p class="panel-description">Sculpt banks, tunnels and level building sites. The preview shows the brush volume. Edits preserve occupied space and structure supports.</p>
+    <div class="dev-fields"><label class="dev-field"><span>Terrain operation</span><select id="dev-terrain-mode">${TERRAIN_MODES.map((mode) => `<option value="${mode}">${{ dig: 'Excavate', add: 'Build up', flatten: 'Flatten to height', smooth: 'Smooth', restore: 'Restore seeded terrain' }[mode]}</option>`).join('')}</select></label>
+    <label class="dev-field"><span>Brush shape</span><select id="dev-terrain-shape"><option value="sphere">Sphere</option><option value="box">Box</option></select></label>
+    <label class="dev-field"><span>Brush radius (m)</span><input id="dev-terrain-radius" type="number" min="1" max="12" step="0.5" value="4"><small>Box uses this half-size on all axes.</small></label>
+    <label class="dev-field"><span>Brush strength</span><input id="dev-terrain-strength" type="number" min="0.1" max="1" step="0.1" value="1"></label>
+    <label class="dev-field"><span>Flatten height (m)</span><input id="dev-terrain-level" type="number" min="-62" max="126" step="0.25" value="${p.position.y.toFixed(2)}"></label></div>
+    <div class="dev-buttons">${button('Sculpt in world', 'terrain-paint')}${button('Sample aimed surface', 'terrain-sample')}</div><p class="muted small">Sculpt mode: aim and hold E / left click, or tap Use. Range 80 m. R / ↻ samples a level. T opens terrain tools. Flight is available under Quick tools.</p>
+    <section><h3>Place a precise brush</h3><div class="dev-inline">${(['x', 'y', 'z'] as const).map((axis) => `<label>Center ${axis.toUpperCase()}<input id="dev-terrain-${axis}" type="number" min="${axis === 'y' ? -62 : -310}" max="${axis === 'y' ? 126 : 310}" step="0.25" value="${(axis === 'z' ? p.position.z - 6 : p.position[axis]).toFixed(2)}"></label>`).join('')}</div><div class="dev-buttons">${button('Apply terrain brush', 'terrain-stamp')}</div></section>
+    <section><h3>Recovery</h3><p class="muted small">${Object.keys(state.terrain.samples).length.toLocaleString()} / ${TERRAIN.maxSamples.toLocaleString()} edited samples. Restore seeded terrain releases samples. Solo captures a whole-world checkpoint before the first developer mutation.</p><div class="dev-buttons">${button('Capture checkpoint', 'checkpoint')}<button class="button secondary" data-action="dev-restore" ${checkpoint ? '' : 'disabled'}>Restore checkpoint</button></div></section>`;
   else if (tab === 'advanced')
     body = `<p class="muted small">Change a group of values and apply. Ranges are validated by the simulation. Values are saved with the world and shared online.</p><div class="dev-fields">${(Object.keys(TUNING_FIELDS) as (keyof Tuning)[]).map((key) => field(key, state.tuning[key], TUNING_FIELDS[key], 'tuning')).join('')}</div><div class="dev-buttons">${button('Apply world variables', 'apply-tuning')}${button('Reset world defaults', 'reset-tuning')}${button('Undo last tuning change', 'undo-tuning')}</div><section><h3>Surface state</h3><div class="dev-inline"><label>Wetness (0–1)<input id="dev-wetness" type="number" min="0" max="1" step=".1" value="${state.environment.wetness.toFixed(2)}"></label><label>Snow cover (0–1)<input id="dev-snow" type="number" min="0" max="1" step=".1" value="${state.environment.snowCover.toFixed(2)}"></label>${button('Apply surfaces', 'ground')}</div><p class="muted small">Weather continues accumulating or drying these surfaces.</p></section><section><h3>Variation presets</h3><div class="dev-inline"><label>Preset name<input id="dev-preset-name" maxlength="32" placeholder="Stormy long nights"></label>${button('Save preset', 'save-preset')}${button('Load preset', 'load-preset')}</div><p id="dev-presets" class="muted small"></p><div class="dev-buttons">${button('Export variation', 'export-preset')}${button('Import variation', 'import-preset')}</div><input type="file" id="dev-preset-file" accept=".json,application/json" hidden></section>`;
   else if (tab === 'graphics') {

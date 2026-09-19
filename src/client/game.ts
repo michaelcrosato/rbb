@@ -11,6 +11,9 @@ import type { Building, PlayerState } from '../shared/state';
 import { DEFAULT_SEED, generateWorld } from '../shared/world';
 import { GameAudio } from './audio';
 import { Input } from './input';
+import { TerrainControls } from './terrain-tools';
+import { terrainAim } from '../shared/earthworks';
+import type { Earthwork } from '../shared/earthworks';
 import type { InputAction } from './input';
 import { SaveStore } from './persistence';
 import { DEFAULT_SETTINGS, WorldRenderer } from './render/renderer';
@@ -43,6 +46,7 @@ export class Game {
   readonly audio = new GameAudio();
   readonly saves: SaveStore;
   readonly developer: DeveloperControls;
+  readonly terrainTools: TerrainControls;
   session: Session | null = null;
   private settings: RenderSettings = { ...DEFAULT_SETTINGS };
   private saved: SaveFile | null = null;
@@ -97,7 +101,21 @@ export class Game {
         this.ui.toast(e instanceof Error ? e.message : 'That action could not be completed.', true),
       );
     };
+    this.terrainTools = new TerrainControls({
+      session: () => this.session,
+      look: () => ({ yaw: this.input.yaw, pitch: this.input.pitch }),
+      renderer: this.renderer,
+      ui: this.ui,
+      sculpt: (brush) => this.developer.sculpt(brush),
+    });
     this.developer = new DeveloperControls({
+      paint: (brush) => {
+        this.cancelBuild();
+        this.terrainTools.cancel();
+        this.terrainTools.developerBrush = brush;
+        this.terrainTools.level = brush.level;
+        this.resume();
+      },
       root,
       session: () => this.session,
       settings: () => this.settings,
@@ -214,6 +232,20 @@ export class Game {
       this.session.command({ type: 'move', input: this.input.sample() });
       if (this.session.mode === 'solo') this.save();
     }
+    if (panel === 'terrain') {
+      const p = this.player();
+      const hit =
+        p && this.session
+          ? terrainAim(this.session.state, this.session.world, {
+              ...p,
+              yaw: this.input.yaw,
+              pitch: this.input.pitch,
+            })
+          : null;
+      this.ui.terrainLevel = this.terrainTools.active
+        ? this.terrainTools.level
+        : Math.round((hit?.point.y ?? p?.position.y ?? 8) * 4) / 4;
+    }
     this.ui.showPanel(panel, this.player(), this.settings);
     if (panel === 'team' && this.session)
       this.ui.updateTeam(this.session.state, this.player()!, this.session.status);
@@ -251,7 +283,7 @@ export class Game {
       void this.action('slot', String(value));
       return;
     }
-    if (action === 'inventory' || action === 'build' || action === 'map') {
+    if (action === 'inventory' || action === 'build' || action === 'map' || action === 'terrain') {
       if (this.ui.panel === action) this.resume();
       else if (action === 'build' && this.buildKind && !this.ui.panel) this.cancelBuild();
       else this.openPanel(action);
@@ -259,11 +291,34 @@ export class Game {
     }
     if (!this.input.active) return;
     if (action === 'interact') this.interact();
-    if (action === 'rotate') this.rotation = (this.rotation + 1) % 4;
+    if (action === 'rotate') {
+      if (this.terrainTools.active) this.terrainTools.sample();
+      else this.rotation = (this.rotation + 1) % 4;
+    }
     if (action === 'consume') this.consume();
   }
 
   private async action(action: string, value?: string): Promise<void> {
+    if (action === 'terrain-select') {
+      const level = Number(this.ui.root.querySelector<HTMLInputElement>('#terrain-level')!.value);
+      if (!Number.isFinite(level) || level < -62 || level > 126) {
+        this.ui.toast('Choose a height between -62 and 126 m.', true);
+        return;
+      }
+      this.cancelBuild();
+      this.terrainTools.cancel();
+      this.terrainTools.mode = value as Earthwork['mode'];
+      this.terrainTools.level = level;
+      if (value !== 'add' && this.player()?.inventory.pickaxe)
+        this.session?.command({ type: 'equip', item: 'pickaxe' });
+      this.resume();
+      return;
+    }
+    if (action === 'terrain-stop') {
+      this.terrainTools.cancel();
+      this.resume();
+      return;
+    }
     if (action.startsWith('dev-')) {
       await this.developer.action(action.slice(4), value);
       return;
@@ -286,7 +341,17 @@ export class Game {
       );
     else if (action === 'close' || action === 'resume') this.resume();
     else if (
-      ['inventory', 'build', 'map', 'pause', 'settings', 'guide', 'online', 'team'].includes(action)
+      [
+        'inventory',
+        'build',
+        'map',
+        'pause',
+        'settings',
+        'guide',
+        'online',
+        'team',
+        'terrain',
+      ].includes(action)
     )
       this.openPanel(action as Panel);
     else if (action === 'apply-settings') {
@@ -332,6 +397,7 @@ export class Game {
       }
       if (HOTBAR[index]) {
         this.cancelBuild();
+        this.terrainTools.cancel();
         this.session.command({ type: 'equip', item: HOTBAR[index] });
       }
     } else if (action === 'item' && this.session) {
@@ -341,16 +407,20 @@ export class Game {
     } else if (action === 'craft')
       this.session?.command({ type: 'craft', recipe: value as RecipeId });
     else if (action === 'select-build') {
+      this.terrainTools.cancel();
       this.buildKind = value as BuildingKind;
       this.rotation = 0;
       this.resume();
     } else if (action === 'interact' && this.input.active) this.interact();
-    else if (action === 'rotate') this.rotation = (this.rotation + 1) % 4;
-    else if (action === 'consume') this.consume();
+    else if (action === 'rotate') {
+      if (this.terrainTools.active) this.terrainTools.sample();
+      else this.rotation = (this.rotation + 1) % 4;
+    } else if (action === 'consume') this.consume();
     else if (action === 'respawn') {
       this.session?.command({ type: 'respawn' });
       if (this.session?.mode === 'solo') this.resume();
     } else if (action === 'menu') {
+      this.terrainTools.cancel();
       this.save();
       this.session?.close();
       this.session = null;
@@ -403,6 +473,7 @@ export class Game {
     this.session = session;
     this.ui.inviteUrl = session instanceof RemoteSession ? worldInviteUrl(session.serverUrl) : '';
     this.developer.attach();
+    this.terrainTools.cancel();
     this.renderer.setWorld(session.world);
     this.syncedTick = -1;
     this.cancelBuild();
@@ -485,6 +556,14 @@ export class Game {
 
   private interact(): void {
     if (!this.session || !this.player() || this.player()!.cooldown > 0) return;
+    // A click may arrive between render frames. Send the current look before
+    // the action so the authoritative ray matches the crosshair.
+    this.session.command({ type: 'move', input: this.input.sample(this.player()!.dev.flight) });
+    if (this.terrainTools.active) {
+      this.terrainTools.apply();
+      this.lastAction = performance.now();
+      return;
+    }
     if (this.buildKind && this.candidate)
       this.session.command({
         type: 'build',
@@ -538,7 +617,7 @@ export class Game {
   private async importFile(file?: File): Promise<void> {
     if (!file) return;
     try {
-      if (file.size > MAX_SAVE_BYTES) throw new Error('Save files must be smaller than 2 MB.');
+      if (file.size > MAX_SAVE_BYTES) throw new Error('Save files must be smaller than 16 MB.');
       const raw = await file.text();
       const save = parseSave(raw);
       // A valid import deliberately replaces this device's active solo expedition; keep a backup.
@@ -567,7 +646,7 @@ export class Game {
         this.openPanel('death');
       if (p.health > 0 && this.ui.panel === 'death') this.resume();
       if (session.state.tick !== this.syncedTick) {
-        this.renderer.sync(getSnapshot(session));
+        this.renderer.sync(getSnapshot(session, this.renderer.terrainRevision));
         this.syncedTick = session.state.tick;
       }
       this.renderer.render(time, p, this.input.yaw, this.input.pitch, !this.ui.panel);
@@ -577,7 +656,10 @@ export class Game {
         this.renderer.atmosphere.flash,
         !document.hidden && !paused,
       );
-      this.target = this.buildKind || paused ? null : this.renderer.findTarget(session.state, p);
+      this.target =
+        this.buildKind || this.terrainTools.active || paused
+          ? null
+          : this.renderer.findTarget(session.state, p);
       if (this.buildKind && !paused) {
         // A short, explicit reach makes placement usable with mouse, keyboard and touch.
         const distance = 5 + Math.max(0, this.input.pitch) * 2;
@@ -588,11 +670,13 @@ export class Game {
           p.position.x - Math.sin(this.input.yaw) * distance,
           p.position.z - Math.cos(this.input.yaw) * distance,
           this.rotation,
+          p.position.y + 0.65,
         );
         const result = validateBuild(session.state, session.world, p, this.candidate);
         this.renderer.showPreview(this.candidate, result.ok);
         this.ui.buildHint(this.buildKind, result.message, result.ok);
       } else this.renderer.showPreview(null, false);
+      this.terrainTools.update(!!this.ui.panel);
       // Holding the action key repeats gathering; building placement stays one piece per press.
       if (this.input.heldAction && !this.buildKind && time - this.lastAction > 610 && !paused)
         this.interact();
@@ -645,6 +729,14 @@ export class Game {
       graphics: this.settings.graphics,
       effectiveGraphics: this.renderer.effectiveGraphics,
       pipeline: this.renderer.pipeline,
+      terrain: this.session?.state.terrain,
+      terrainMesh: this.renderer.terrainDiagnostics,
+      terrainTool: {
+        mode: this.terrainTools.mode,
+        level: this.terrainTools.level,
+        hit: this.terrainTools.hit,
+        developer: this.terrainTools.developerBrush,
+      },
       renderer: this.renderer.stats,
       panel: this.ui.panel,
       mode: this.session?.mode,

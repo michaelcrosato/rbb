@@ -245,6 +245,7 @@ describe('developer boundaries and persistence', () => {
       current = JSON.parse(encodeSave(sim.state, 'local'));
     current.version = 1;
     current.state.version = 1;
+    delete current.state.terrain;
     delete current.state.environment;
     delete current.state.tuning;
     delete current.state.sandbox;
@@ -262,8 +263,8 @@ describe('developer boundaries and persistence', () => {
     }
     current.state.resources['starter-tree'] = { health: 0, respawnAt: 1200 };
     const migrated = parseSave(JSON.stringify(current));
-    expect(migrated.version).toBe(2);
-    expect(migrated.state.version).toBe(2);
+    expect(migrated.version).toBe(3);
+    expect(migrated.state.version).toBe(3);
     expect(migrated.state.worldVersion).toBe(current.state.worldVersion);
     expect(migrated.state.time).toBe(current.state.time);
     expect(migrated.state.resources).toEqual(current.state.resources);

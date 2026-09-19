@@ -1923,3 +1923,52 @@ kbd {
   padding: 10px 16px;
   border-radius: 8px;
 }
+
+.terrain-modes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.terrain-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 160px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 12px 20px;
+  border: 1px solid #a6bb9160;
+  border-radius: 12px;
+  background: #172621e8;
+  color: #f0e6c5;
+  text-align: center;
+  white-space: pre-line;
+  line-height: 1.7;
+  font-size: 12px;
+  pointer-events: none;
+}
+@media (max-width: 700px) {
+  .terrain-modes {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .terrain-modes .building-card {
+    padding: 12px;
+  }
+  .terrain-hint {
+    bottom: auto;
+    top: 112px;
+    width: 65%;
+    font-size: 10px;
+    padding: 6px 10px;
+  }
+}
+@media (max-height: 550px) and (min-width: 701px) {
+  .terrain-hint {
+    bottom: 74px;
+    width: 300px;
+    font-size: 10px;
+    line-height: 1.5;
+    padding: 6px 10px;
+  }
+}

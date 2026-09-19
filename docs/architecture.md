@@ -10,7 +10,7 @@
 
 ## World
 
-The seeded island uses the same triangular heightfield for visuals and collision. Vegetation and mineral locations are deterministic. Terrain is chunked and repeated props are instanced. Only mutations need persistence; generated terrain and resource definitions are rebuilt from the seed. World generation has its own version so an engine update cannot silently move an existing save's land.
+The seeded island retains generation version 1 and adds a versioned sparse volumetric terrain layer. Metre-lattice density samples support caves, overhangs and fill. Shared tetrahedral interpolation, surface queries and polygonization keep collision and visuals aligned; unedited land keeps its original triangles. Vegetation and mineral locations are deterministic. Terrain is chunked and repeated props are instanced. Only changed terrain samples and entity mutations need persistence; generated terrain and resource definitions are rebuilt from the seed. Terrain operations prepare a patch, validate occupancy/support and material costs, then commit atomically. See [terrain architecture and controls](terrain.md). World generation has its own version so an engine update cannot silently move an existing save's land.
 
 ## Hosting
 
@@ -18,7 +18,7 @@ The Vite client is static and can be hosted on Vercel. The optional Node 24 worl
 
 ## Extension seams
 
-`shared/environment.ts` owns a separate sky clock, weather transitions and validated world tuning. Monotonic simulation time continues to govern survival and expiry. `shared/wildlife.ts` uses the content registry for species, habitat, navigation, threats and respawn. Save v2 explicitly migrates v1 without changing world generation; protocol v2 broadcasts shared environment/tuning and the host's developer capability.
+`shared/environment.ts` owns a separate sky clock, weather transitions and validated world tuning. Monotonic simulation time continues to govern survival and expiry. `shared/wildlife.ts` uses the content registry for species, habitat, navigation, threats and respawn. Save v3 explicitly migrates v1 and v2 without changing world generation; protocol v3 broadcasts terrain baselines/revision patches alongside shared environment/tuning and the host's developer capability.
 
 Rendering is divided into atmosphere, surfaces/ocean, wildlife models, optional post effects and bounded ambient particles. Low quality affects only this presentation layer. Optional render targets are disposed when disabled. Statistics count every render pass, including shadow and offscreen passes. Camera, wildlife and remote survivor motion are smoothed toward authoritative samples at render rate; survivor respawns and large corrections snap into place. Client prediction and buffered snapshot interpolation remain future work.
 
@@ -26,6 +26,6 @@ Cooperative worlds admit at most four active survivors. The server bounds pendin
 
 The [advanced rendering graph](rendering-pipeline.md) owns shared depth/normal/motion attachments and native temporal history. `FrameState` owns camera jitter/invalidation; named material hooks compose foliage, cascades and spatial irradiance probes. Probes use bounded raster captures and asynchronous SH extraction. GPU visibility queries consume shared depth without waiting; chunk residency releases only unused GPU buffers and retains canonical CPU objects. Graphics settings, resource ownership and capability fallbacks stay client-local. Context restoration rebuilds the optional graph and leaves the player in the pause menu; online transport remains connected.
 
-`client/developer.ts` coordinates visible playtest workflows, validated variation JSON and solo recovery checkpoints. `shared/developer.ts` validates and applies mutations after the simulation checks host authorization. A successful world mutation sets the persisted sandbox flag. Rendering controls are device-local and never set that flag.
+`client/developer.ts` coordinates visible playtest workflows, validated variation JSON and solo recovery checkpoints. `shared/developer.ts` validates and applies mutations after the simulation checks host authorization. A successful developer world mutation sets the persisted sandbox flag. Normal player terrain edits use the same authoritative validation with pickaxe, dirt, reach and cooldown rules, and do not set that flag. Rendering controls are device-local and never set that flag.
 
 Add items/recipes/build pieces in the content registry; add commands and their validation in the shared protocol/simulation; add render models by content ID. Progression uses persisted milestone counters. New systems should consume simulation events instead of reaching into the UI. Persist only serializable domain state. Save migrations are explicit and covered by fixtures. Tests can construct worlds and issue commands without a GPU.

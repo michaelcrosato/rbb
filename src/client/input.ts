@@ -2,6 +2,7 @@ import { clamp } from '../shared/math';
 import type { MoveInput } from '../shared/state';
 
 export type InputAction =
+  | 'terrain'
   | 'developer'
   | 'interact'
   | 'inventory'
@@ -50,13 +51,14 @@ export class Input {
           e.preventDefault();
         this.keys.add(e.code);
         if (e.repeat) return;
-        if (!this.active && !['Tab', 'KeyI', 'KeyB', 'KeyM'].includes(e.code)) return;
+        if (!this.active && !['Tab', 'KeyI', 'KeyB', 'KeyM', 'KeyT'].includes(e.code)) return;
         if (e.code === 'Space') this.jump = true;
         const actions: Record<string, InputAction> = {
           KeyE: 'interact',
           KeyI: 'inventory',
           Tab: 'inventory',
           KeyB: 'build',
+          KeyT: 'terrain',
           KeyM: 'map',
           KeyR: 'rotate',
           KeyF: 'consume',

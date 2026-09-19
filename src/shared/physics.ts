@@ -2,8 +2,16 @@ import { BALANCE, RESOURCE_TYPES } from './content';
 import { clamp } from './math';
 import { resourceIsActive } from './state';
 import type { GameState, PlayerState, Building } from './state';
-import { nearbyResources, terrainHeight, WORLD_HALF } from './world';
+import { nearbyResources, WORLD_HALF } from './world';
 import type { WorldDefinition } from './world';
+import {
+  terrainBodyClear,
+  terrainCeiling,
+  terrainDensity,
+  terrainFloor,
+  terrainRaycast,
+  TERRAIN,
+} from './terrain';
 
 export function wallContains(b: Building, x: number, z: number, padding = 0.33): boolean {
   const alongX = b.rotation % 2 === 0;
@@ -18,10 +26,16 @@ export function groundHeight(
   world: WorldDefinition,
   x: number,
   z: number,
+  below: number = TERRAIN.maxY,
 ): number {
-  let height = terrainHeight(x, z, world.hash);
+  let height = terrainFloor(state.terrain, world, x, z, below);
   for (const b of state.buildings) {
-    if (b.kind === 'foundation' && Math.abs(x - b.x) <= 2.15 && Math.abs(z - b.z) <= 2.15)
+    if (
+      b.kind === 'foundation' &&
+      b.y <= below + 0.001 &&
+      Math.abs(x - b.x) <= 2.15 &&
+      Math.abs(z - b.z) <= 2.15
+    )
       height = Math.max(height, b.y);
   }
   return height;
@@ -40,12 +54,22 @@ export function blocked(
       radius &&
       resourceIsActive(state, r.id) &&
       Math.hypot(x - r.x, z - r.z) < radius + 0.33 &&
-      feet < r.y + (r.kind === 'tree' ? 8 : 1.5 * r.scale)
+      feet < r.y + (r.kind === 'tree' ? 8 : 1.5 * r.scale) &&
+      feet + 1.7 > r.y
     )
       return true;
   }
-  return state.buildings.some(
-    (b) => b.kind === 'wall' && feet < b.y + 3 && feet + 1.7 > b.y && wallContains(b, x, z),
+  return (
+    !terrainBodyClear(state.terrain, world, x, feet, z) ||
+    state.buildings.some((b) =>
+      b.kind === 'wall'
+        ? feet < b.y + 3 && feet + 1.7 > b.y && wallContains(b, x, z)
+        : b.kind === 'foundation' &&
+          feet < b.y - 0.01 &&
+          feet + 1.7 > b.y - 0.3 &&
+          Math.abs(x - b.x) < 2.33 &&
+          Math.abs(z - b.z) < 2.33,
+    )
   );
 }
 
@@ -55,14 +79,38 @@ export function lineOfSight(
   x: number,
   y: number,
   z: number,
+  world: WorldDefinition,
 ): boolean {
+  const origin = {
+    x: player.position.x,
+    y: player.position.y + BALANCE.eyeHeight,
+    z: player.position.z,
+  };
+  const direction = { x: x - origin.x, y: y - origin.y, z: z - origin.z };
+  if (
+    terrainRaycast(
+      state.terrain,
+      world,
+      origin,
+      direction,
+      Math.hypot(direction.x, direction.y, direction.z) - 0.12,
+    )
+  )
+    return false;
   for (let t = 0.1; t < 1; t += 0.1) {
     const px = player.position.x + (x - player.position.x) * t;
     const pz = player.position.z + (z - player.position.z) * t;
-    const py = player.position.y + 1.5 + (y - player.position.y - 1.5) * t;
+    const py =
+      player.position.y + BALANCE.eyeHeight + (y - player.position.y - BALANCE.eyeHeight) * t;
     if (
-      state.buildings.some(
-        (b) => b.kind === 'wall' && py > b.y && py < b.y + 3 && wallContains(b, px, pz, 0),
+      state.buildings.some((b) =>
+        b.kind === 'wall'
+          ? py > b.y && py < b.y + 3 && wallContains(b, px, pz, 0)
+          : b.kind === 'foundation' &&
+            py < b.y &&
+            py > b.y - 0.3 &&
+            Math.abs(px - b.x) < 2 &&
+            Math.abs(pz - b.z) < 2,
       )
     )
       return false;
@@ -80,7 +128,9 @@ export function stepPlayer(
   const input = p.input;
   p.yaw = input.yaw;
   p.pitch = input.pitch;
-  const swimming = terrainHeight(p.position.x, p.position.z, world.hash) < -1.2 && p.position.y < 0;
+  const swimming =
+    p.position.y < 0 &&
+    terrainDensity(state.terrain, world, p.position.x, p.position.y + 0.2, p.position.z) >= 0;
   const moving = Math.hypot(input.forward, input.strafe) > 0.01;
   const sprinting = input.sprint && moving && p.stamina > 1 && !swimming;
   const speed =
@@ -101,8 +151,8 @@ export function stepPlayer(
           speed *
           3 *
           dt,
-      -15,
-      140,
+      TERRAIN.minY + 2,
+      TERRAIN.maxY + 12,
     );
     p.velocityY = 0;
     p.grounded = false;
@@ -114,29 +164,82 @@ export function stepPlayer(
   }
   const swimmingUp = input.jump;
   input.jump = false;
+  const floorAt = (x: number, z: number) =>
+    Math.max(
+      ...[
+        [0, 0],
+        [0.33, 0],
+        [-0.33, 0],
+        [0, 0.33],
+        [0, -0.33],
+      ].map(([dx, dz]) => groundHeight(state, world, x + dx, z + dz, p.position.y + 0.65)),
+    );
   const tryMove = (x: number, z: number) => {
     x = clamp(x, -WORLD_HALF + 2, WORLD_HALF - 2);
     z = clamp(z, -WORLD_HALF + 2, WORLD_HALF - 2);
-    const ground = groundHeight(state, world, x, z);
-    if (ground - p.position.y > 0.65 || blocked(state, world, x, z, p.position.y)) return;
+    const ground = floorAt(x, z);
+    const feet = Math.max(p.position.y, ground);
+    if (blocked(state, world, x, z, feet)) return;
     p.position.x = x;
     p.position.z = z;
   };
-  tryMove(p.position.x + dx, p.position.z);
-  tryMove(p.position.x, p.position.z + dz);
+  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dz)) / 0.2));
+  for (let i = 0; i < steps; i++) {
+    tryMove(p.position.x + dx / steps, p.position.z);
+    tryMove(p.position.x, p.position.z + dz / steps);
+  }
   if (swimming) {
     const vertical = input.dive ? -2.3 : swimmingUp ? 3 : p.position.y < -1.2 ? 1.2 : 0;
     p.velocityY += (vertical - p.velocityY) * Math.min(1, dt * 5);
     p.position.y = Math.max(
-      groundHeight(state, world, p.position.x, p.position.z) + 0.15,
-      Math.min(-1.2, p.position.y + p.velocityY * dt),
+      floorAt(p.position.x, p.position.z) + 0.15,
+      Math.min(
+        -1.2,
+        terrainCeiling(state.terrain, world, p.position.x, p.position.z, p.position.y + 0.1) - 1.7,
+        p.position.y + p.velocityY * dt,
+      ),
     );
     p.grounded = false;
     return;
   }
-  const floor = Math.max(groundHeight(state, world, p.position.x, p.position.z), -1.2);
+  const floor = Math.max(floorAt(p.position.x, p.position.z), -1.2);
+  let ceiling = terrainCeiling(
+    state.terrain,
+    world,
+    p.position.x,
+    p.position.z,
+    p.position.y + 0.1,
+  );
+  for (const [dx, dz] of [
+    [0.33, 0],
+    [-0.33, 0],
+    [0, 0.33],
+    [0, -0.33],
+  ])
+    ceiling = Math.min(
+      ceiling,
+      terrainCeiling(
+        state.terrain,
+        world,
+        p.position.x + dx,
+        p.position.z + dz,
+        p.position.y + 0.1,
+      ),
+    );
+  for (const b of state.buildings)
+    if (
+      b.kind === 'foundation' &&
+      b.y - 0.3 > p.position.y + 0.1 &&
+      Math.abs(p.position.x - b.x) < 2.33 &&
+      Math.abs(p.position.z - b.z) < 2.33
+    )
+      ceiling = Math.min(ceiling, b.y - 0.3);
   p.velocityY -= BALANCE.gravity * state.tuning.gravity * dt;
   p.position.y += p.velocityY * dt;
+  if (p.velocityY > 0 && p.position.y + 1.7 > ceiling) {
+    p.position.y = ceiling - 1.7;
+    p.velocityY = 0;
+  }
   if (p.position.y <= floor) {
     if (p.velocityY < -13 && !p.dev.invincible)
       p.health = Math.max(0, p.health - (-p.velocityY - 13) * 4 * state.tuning.damage);

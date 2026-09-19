@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startWorldServer } from '../../server/app';
+import { testOrigins } from './server-options';
 import { aimAt, diagnostics, gather, walkTo } from './helpers';
 
 // DOM trace snapshots are awaited before input dispatch. Across five software
@@ -45,7 +46,13 @@ test('session controls are ready before the first game frame after joining or re
   page,
 }) => {
   const dataDir = await mkdtemp(join(tmpdir(), 'rbb-session-ui-'));
-  const server = await startWorldServer({ port: 0, host: '127.0.0.1', dataDir, log: () => {} });
+  const server = await startWorldServer({
+    allowedOrigins: testOrigins,
+    port: 0,
+    host: '127.0.0.1',
+    dataDir,
+    log: () => {},
+  });
   const errors: string[] = [];
   try {
     await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
@@ -79,7 +86,13 @@ test('four survivors play in one world, share a camp and invite, and free a full
 }, testInfo) => {
   test.setTimeout(process.env.CI ? 360000 : 180000);
   const dataDir = await mkdtemp(join(tmpdir(), 'rbb-four-browser-'));
-  const server = await startWorldServer({ port: 0, host: '127.0.0.1', dataDir, log: () => {} });
+  const server = await startWorldServer({
+    allowedOrigins: testOrigins,
+    port: 0,
+    host: '127.0.0.1',
+    dataDir,
+    log: () => {},
+  });
   // Five software-rendered worlds share one CI runner. Bound raster work while
   // preserving the desktop layout and all gameplay assertions.
   const contextOptions = { viewport: { width: 1024, height: 640 }, deviceScaleFactor: 0.5 };
@@ -244,7 +257,13 @@ test('separate survivors in the same browser retain their identities across relo
   browser,
 }) => {
   const dataDir = await mkdtemp(join(tmpdir(), 'rbb-tabs-'));
-  const server = await startWorldServer({ port: 0, host: '127.0.0.1', dataDir, log: () => {} });
+  const server = await startWorldServer({
+    allowedOrigins: testOrigins,
+    port: 0,
+    host: '127.0.0.1',
+    dataDir,
+    log: () => {},
+  });
   const context = await browser.newContext();
   const a = await context.newPage(),
     b = await context.newPage();

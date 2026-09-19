@@ -1,10 +1,13 @@
 import { z } from 'zod';
 import { developerSchema } from './developer';
+import { earthworkSchema } from './earthworks';
+import { terrainUpdate } from './terrain';
+import type { TerrainUpdate } from './terrain';
 import { BUILDING_IDS, ITEM_IDS, RECIPE_IDS } from './content';
 import type { GameEvent, GameState, PlayerState, Result } from './state';
 import { WORLD_HALF } from './world';
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 export const moveSchema = z
   .object({
     forward: z.number().finite().min(-1).max(1),
@@ -21,6 +24,7 @@ export const moveSchema = z
   })
   .strict();
 export const commandSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('terrain'), request: earthworkSchema }).strict(),
   z.object({ type: z.literal('dev'), request: developerSchema }).strict(),
   z.object({ type: z.literal('move'), input: moveSchema }).strict(),
   z.object({ type: z.literal('equip'), item: z.enum(ITEM_IDS) }).strict(),
@@ -71,6 +75,7 @@ export type PublicPlayer = Pick<
   'id' | 'name' | 'position' | 'yaw' | 'health' | 'equipped'
 >;
 export interface Snapshot {
+  terrain?: TerrainUpdate;
   environment: GameState['environment'];
   tuning: GameState['tuning'];
   sandbox: boolean;
@@ -93,8 +98,14 @@ export type ServerMessage =
   | { type: 'error'; message: string }
   | { type: 'pong'; at: number };
 
-export function snapshotFor(state: GameState, id: string, devAllowed = false): Snapshot {
+export function snapshotFor(
+  state: GameState,
+  id: string,
+  devAllowed = false,
+  terrainSince = -1,
+): Snapshot {
   return {
+    terrain: terrainUpdate(state.terrain, terrainSince),
     environment: state.environment,
     tuning: state.tuning,
     sandbox: state.sandbox,

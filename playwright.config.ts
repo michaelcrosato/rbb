@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
+import { testPort, testUrl } from './tests/e2e/server-options';
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: process.env.CI ? 180000 : 90000,
@@ -14,7 +15,7 @@ export default defineConfig({
     // Full Chromium preserves relative pointer movement on Linux; headless shell
     // emits compensating cursor-warp events that cancel movement under pointer lock.
     channel: 'chromium',
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL: testUrl,
     // Continuous WebGL screenshots force GPU readbacks on software-rendered CI.
     // Keep DOM/action/network traces and explicit evidence screenshots instead.
     trace: { mode: 'retain-on-failure', screenshots: false, snapshots: true, sources: true },
@@ -41,8 +42,8 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'npm run dev -- --host 127.0.0.1',
-      url: 'http://127.0.0.1:5173',
+      command: `npm run dev -- --host 127.0.0.1 --port ${testPort}`,
+      url: testUrl,
       reuseExistingServer: !process.env.CI,
       timeout: 30000,
     },
