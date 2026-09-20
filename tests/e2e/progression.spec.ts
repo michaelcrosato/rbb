@@ -244,7 +244,8 @@ test('players build a stairwell, climb onto an upper floor and roof a second sto
   await walkTo(page, -4, 103, 0.3);
   await walkTo(page, 0, 103, 0.3);
   await walkTo(page, 0, 98.2, 0.15);
-  await walkTo(page, 1.4, 98.5, 0.2);
+  // Keep the whole arrival tolerance clear of the wall's 45 cm placement buffer.
+  await walkTo(page, 1.2, 98.5, 0.2);
   await expect
     .poll(async () => (await diagnostics(page)).player.position.y)
     .toBeCloseTo(base.y + 3, 1);
@@ -326,10 +327,19 @@ test('inventory controls split a ground stack, preserve it on reload, and collec
     if (message.type() === 'error' || /GL_INVALID|WebGL:/.test(message.text()))
       errors.push(message.text());
   });
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
   await startSolo(page, 'mobile', 'keyboard');
+  await page.clock.pauseAt(new Date('2026-01-01T01:00:00Z'));
   await page.keyboard.press('Tab');
   await page.getByRole('button', { name: 'Manage Wild berries', exact: true }).press('Enter');
-  await page.getByLabel('Quantity to drop').fill('2');
+  const quantity = page.getByLabel('Quantity to drop');
+  await quantity.press('ControlOrMeta+A');
+  // A first frame after opening must not replace the selected input. This used
+  // to turn a native replacement keystroke into 12/21 instead of the intended 2.
+  await page.clock.runFor(250);
+  await page.keyboard.insertText('2');
+  await expect(quantity).toHaveValue('2');
+  await page.clock.resume();
   await page.screenshot({ path: testInfo.outputPath('split-stack.png') });
   await page.getByRole('button', { name: 'Drop supplies', exact: false }).press('Enter');
   await expect.poll(async () => (await diagnostics(page)).player.inventory.berries).toBe(1);

@@ -63,6 +63,8 @@ export class Game {
   private request = 0;
   private disposed = false;
   private connecting = false;
+  private pointerRelease?: Promise<void>;
+  private finishPointerRelease?: () => void;
   private readonly abort = new AbortController();
 
   constructor(root: HTMLElement) {
@@ -146,10 +148,17 @@ export class Game {
       () => {
         // A slow pointer-lock request can finish after the player opens a panel.
         // Release that late grant so the canvas cannot capture clicks meant for controls.
-        if (document.pointerLockElement && (this.ui.panel || !this.session))
-          document.exitPointerLock();
-        else if (!document.pointerLockElement && this.session && !this.ui.panel)
-          this.openPanel('pause');
+        if (document.pointerLockElement) {
+          if (this.ui.panel || !this.session) this.releasePointer();
+        } else {
+          const requested = !!this.pointerRelease;
+          this.finishPointerRelease?.();
+          this.pointerRelease = undefined;
+          this.finishPointerRelease = undefined;
+          // A panel can close before its requested release is acknowledged.
+          // Only an unsolicited loss (for example Escape) should reopen Pause.
+          if (!requested && this.session && !this.ui.panel) this.openPanel('pause');
+        }
       },
       { signal },
     );
@@ -219,12 +228,21 @@ export class Game {
     return this.session?.state.players[this.session.playerId];
   }
   private async lockPointer(): Promise<void> {
-    if (matchMedia('(pointer: coarse)').matches || this.ui.panel || !this.session) return;
+    if (this.pointerRelease) await this.pointerRelease;
+    if (this.disposed || matchMedia('(pointer: coarse)').matches || this.ui.panel || !this.session)
+      return;
     try {
       await this.ui.canvas.requestPointerLock();
     } catch {
       this.ui.toast('Drag the world to look. Double-click to capture the mouse; E gathers.');
     }
+  }
+  private releasePointer(): void {
+    if (!document.pointerLockElement || this.pointerRelease) return;
+    this.pointerRelease = new Promise((resolve) => {
+      this.finishPointerRelease = resolve;
+    });
+    document.exitPointerLock();
   }
   private openPanel(panel: Panel): void {
     this.input.reset();
@@ -259,7 +277,7 @@ export class Game {
     if (panel === 'map' && this.session)
       this.ui.drawMap(this.session.world, this.session.state, this.player()!);
     if (panel === 'developer') this.developer.render();
-    if (document.pointerLockElement) document.exitPointerLock();
+    this.releasePointer();
   }
   private resume(): void {
     if (this.player()?.health === 0) {
@@ -514,7 +532,7 @@ export class Game {
       this.ui.showGame(false);
       this.renderer.showPreview(null, false);
       this.target = null;
-      if (document.pointerLockElement) document.exitPointerLock();
+      this.releasePointer();
       const loaded = this.saves.load();
       this.saved = loaded.save;
       this.ui.setHasSave(!!this.saved);
@@ -858,6 +876,7 @@ export class Game {
 
   dispose(): void {
     this.disposed = true;
+    this.finishPointerRelease?.();
     cancelAnimationFrame(this.request);
     this.abort.abort();
     this.save();

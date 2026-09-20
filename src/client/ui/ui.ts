@@ -309,14 +309,7 @@ export class UI {
     if (
       ['inventory', 'build', 'item-details', 'supplies', 'structure'].includes(this.panel ?? '')
     ) {
-      const signature = JSON.stringify([
-        player.inventory,
-        player.worn,
-        player.quickSlots,
-        state.buildings,
-        this.panel === 'supplies' ? state.bags.find((bag) => bag.id === this.suppliesId) : null,
-        this.panel === 'supplies' && this.suppliesId ? state.sites[this.suppliesId] : null,
-      ]);
+      const signature = this.panelStateSignature(player, state);
       if (signature !== this.panelSignature) {
         this.panelSignature = signature;
         const active = document.activeElement as HTMLElement;
@@ -346,6 +339,17 @@ export class UI {
     if (this.panel === 'map') this.drawMap(world, state, player);
   }
 
+  private panelStateSignature(player: PlayerState, state: GameState): string {
+    return JSON.stringify([
+      player.inventory,
+      player.worn,
+      player.quickSlots,
+      state.buildings,
+      this.panel === 'supplies' ? state.bags.find((bag) => bag.id === this.suppliesId) : null,
+      this.panel === 'supplies' && this.suppliesId ? state.sites[this.suppliesId] : null,
+    ]);
+  }
+
   showPanel(
     panel: Panel,
     player?: PlayerState,
@@ -357,7 +361,10 @@ export class UI {
     this.currentWorld = world ?? this.currentWorld;
     if (!this.panel) this.previousFocus = document.activeElement as HTMLElement;
     this.panel = panel;
-    this.panelSignature = '';
+    // The initial markup already represents this state. Replacing it on the
+    // next frame can discard a user's in-progress text selection or keystroke.
+    this.panelSignature =
+      player && this.currentState ? this.panelStateSignature(player, this.currentState) : '';
     this.renderSettings = settings ?? this.renderSettings;
     this.modal.classList.toggle('developer-view', panel === 'developer');
     this.modal.hidden = false;

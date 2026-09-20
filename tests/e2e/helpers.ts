@@ -3,6 +3,8 @@ import type { Page } from '@playwright/test';
 import type { PlayerState, Building, Animal, LootBag } from '../../src/shared/state';
 import type { Resource } from '../../src/shared/world';
 import { RESOURCE_TYPES } from '../../src/shared/content';
+import { structureSolids } from '../../src/shared/structure-geometry';
+import { containsXZ } from '../../src/shared/spatial';
 
 import type { Environment, Tuning, celestial } from '../../src/shared/environment';
 import type { GraphicsSettings } from '../../src/client/render/settings';
@@ -151,38 +153,43 @@ export async function startSolo(
 export async function aimAt(page: Page, x: number, y: number, z: number): Promise<void> {
   // All navigation uses real mouse input. Diagnostics returns copies and never edits game state.
   await page.mouse.move(600, 300);
-  const { player, look } = await diagnostics(page);
-  const dx = x - player.position.x,
-    dz = z - player.position.z;
-  const yaw = Math.atan2(-dx, -dz),
-    pitch = Math.atan2(y - player.position.y - 1.65, Math.hypot(dx, dz));
-  const delta = Math.atan2(Math.sin(yaw - look.yaw), Math.cos(yaw - look.yaw));
-  const pointerLocked = await page.evaluate(() => document.pointerLockElement !== null);
-  let remainingX = -delta / 0.0022,
-    remainingY = -(pitch - look.pitch) / 0.0022;
-  if (pointerLocked) {
-    await page.mouse.move(600 + remainingX, 300 + remainingY);
-  } else {
-    // Headless Chromium may decline pointer capture. Exercise the same drag control
-    // available to players, keeping each stroke within the canvas.
-    while (Math.abs(remainingX) > 0.1 || Math.abs(remainingY) > 0.1) {
-      const stepX = Math.max(-350, Math.min(350, remainingX)),
-        stepY = Math.max(-230, Math.min(230, remainingY));
-      await page.mouse.move(600, 300);
-      await page.mouse.down();
-      await page.mouse.move(600 + stepX, 300 + stepY);
-      await page.mouse.up();
-      remainingX -= stepX;
-      remainingY -= stepY;
-    }
-  }
+  let mouseX = 600,
+    mouseY = 300;
   await expect
     .poll(
       async () => {
-        const d = await diagnostics(page);
-        return Math.abs(Math.atan2(Math.sin(yaw - d.player.yaw), Math.cos(yaw - d.player.yaw)));
+        const pointerLocked = await page.evaluate(() => document.pointerLockElement !== null);
+        if (!pointerLocked && (mouseX !== 600 || mouseY !== 300)) {
+          await page.mouse.move(600, 300);
+          mouseX = 600;
+          mouseY = 300;
+        }
+        const { player, look } = await diagnostics(page);
+        const dx = x - player.position.x,
+          dz = z - player.position.z;
+        const yaw = Math.atan2(-dx, -dz);
+        const pitch = Math.max(
+          -1.45,
+          Math.min(1.45, Math.atan2(y - player.position.y - 1.65, Math.hypot(dx, dz))),
+        );
+        const yawError = (value: number) =>
+          Math.abs(Math.atan2(Math.sin(yaw - value), Math.cos(yaw - value)));
+        const delta = Math.atan2(Math.sin(yaw - look.yaw), Math.cos(yaw - look.yaw));
+        if (Math.max(Math.abs(delta), Math.abs(pitch - look.pitch)) < 0.01)
+          return Math.max(yawError(player.yaw), Math.abs(pitch - player.pitch));
+        const remainingX = -delta / 0.0022,
+          remainingY = -(pitch - look.pitch) / 0.0022;
+        // Capture may arrive between strokes. Re-observe both axes instead of
+        // assuming each native event was applied. Right-drag also avoids using
+        // the equipped item if capture arrives during a fallback drag gesture.
+        if (!pointerLocked) await page.mouse.down({ button: 'right' });
+        mouseX += pointerLocked ? remainingX : Math.max(-350, Math.min(350, remainingX));
+        mouseY += pointerLocked ? remainingY : Math.max(-230, Math.min(230, remainingY));
+        await page.mouse.move(mouseX, mouseY);
+        if (!pointerLocked) await page.mouse.up({ button: 'right' });
+        return Infinity;
       },
-      { message: `Camera reaches the intended heading (pointer locked: ${pointerLocked})` },
+      { message: 'Camera reaches the intended heading and pitch', intervals: [0] },
     )
     .toBeLessThan(0.02);
 }
@@ -192,8 +199,10 @@ export async function walkTo(page: Page, x: number, z: number, stop = 0.7): Prom
   const deadline = Date.now() + 45000;
   const route: { x: number; z: number; distance: number; stride: number; correcting: boolean }[] =
     [];
+  let origin: { x: number; z: number } | undefined;
   while (Date.now() < deadline) {
     const d = await diagnostics(page);
+    const start = (origin ??= { ...d.player.position });
     const distance = Math.hypot(x - d.player.position.x, z - d.player.position.z);
     if (distance < stop) return;
     const previous = route.at(-1);
@@ -203,17 +212,39 @@ export async function walkTo(page: Page, x: number, z: number, stop = 0.7): Prom
     // Use the same short pulse near the goal, so its observed travel includes the
     // native key-release latency. Larger pulses would invalidate that estimate.
     const stride = distance < Math.max(2, lastStep * 2) ? 0.1 : Math.min(2, (distance - stop) / 2);
-    // Repeated overshoots mean the minimum pulse crosses the goal. Turn one pulse
-    // along a chord ending one pulse from the goal, then approach it head-on.
-    const correcting =
-      previous?.stride === 0.1 &&
-      !previous.correcting &&
-      distance < lastStep &&
-      previous.distance < lastStep;
+    // Once a short pulse is measured, turn before it would cross the goal. End
+    // one pulse from the goal, then approach head-on; waiting for an overshoot
+    // first can walk off a narrow upper landing before there is room to recover.
+    const correcting = previous?.stride === 0.1 && !previous.correcting && distance < lastStep;
     route.push({ x: d.player.position.x, z: d.player.position.z, distance, stride, correcting });
-    const heading =
-      Math.atan2(d.player.position.x - x, d.player.position.z - z) +
-      (correcting ? Math.acos(Math.min(1, distance / (2 * lastStep))) : 0);
+    let heading = Math.atan2(d.player.position.x - x, d.player.position.z - z);
+    if (correcting) {
+      const turn = Math.acos(Math.min(1, distance / (2 * lastStep)));
+      // Both chords approach the same target. On structures, use read-only
+      // collision geometry to keep the endpoint supported, then favor the
+      // approach route. A blind sideways correction can step off the landing.
+      const solids = d.buildings.flatMap(structureSolids);
+      const supported = (x: number, z: number, tolerance: number) =>
+        solids.some(
+          (s) =>
+            Math.abs(s.y + s.height / 2 - d.player.position.y) < tolerance &&
+            containsXZ(s, x, z, 0.33),
+        );
+      const onStructure = supported(d.player.position.x, d.player.position.z, 0.05);
+      const candidates = [heading + turn, heading - turn].map((angle) => {
+        const px = d.player.position.x - Math.sin(angle) * lastStep;
+        const pz = d.player.position.z - Math.cos(angle) * lastStep;
+        return {
+          heading: angle,
+          supported: !onStructure || supported(px, pz, 0.65),
+          distance: Math.hypot(px - start.x, pz - start.z),
+        };
+      });
+      candidates.sort(
+        (a, b) => Number(b.supported) - Number(a.supported) || a.distance - b.distance,
+      );
+      heading = candidates[0].heading;
+    }
     if (
       Math.abs(Math.atan2(Math.sin(heading - d.look.yaw), Math.cos(heading - d.look.yaw))) > 0.025
     )
