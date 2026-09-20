@@ -26,6 +26,12 @@ jobs:
       - run: npm ci
       - run: npm run format:check
       - run: npm run check
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: unit-integration-coverage
+          path: coverage/
+          retention-days: 14
   browser:
     needs: checks
     runs-on: ubuntu-latest
@@ -41,7 +47,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - run: npm run test:install
       - run: npm run test:e2e -- tests/e2e/${{ matrix.suite }}.spec.ts
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

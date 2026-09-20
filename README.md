@@ -19,6 +19,8 @@ npm run dev
 
 Open **http://localhost:5173**. No account, assets service, database, or environment variables are needed for solo play. The game saves on the current browser origin; use **Pause → Export save** to keep a portable backup or move between localhost and a hosted deployment.
 
+Solo expeditions open in one tab at a time on HTTPS and localhost. Return the active tab to the main menu or close it before continuing in another tab. The next tab reads the latest saved progress. See [save protection and limits](docs/qa.md#current-limits) for non-secure LAN origins.
+
 For a shared world, run this in another terminal:
 
 ```sh
@@ -73,8 +75,9 @@ Build doorways, working doors, windows, upper floors, stairwells, roofs, stairs,
 
 ```sh
 npm run check          # types, lint, unit/integration tests, client + server build
-npm exec playwright -- install chromium
+npm run test:install   # matching Chromium + Linux system dependencies
 npm run test:e2e       # real browser controls, WebGL, saves, multiplayer and touch
+npm run test:coverage  # unit/integration V8 report in coverage/
 npm run format:check
 npm run benchmark      # 100-piece camp workload; dev server + installed Chrome required
 npm run benchmark:rendering # per-effect GPU timing and comparison screenshots
@@ -83,6 +86,8 @@ npm run start:server   # run the built world server
 ```
 
 Tests use temporary databases. Browser test artifacts are in `test-results/` and `playwright-report/`; neither is committed. Development builds expose `window.rbbDiagnostics()`, which returns **read-only copies** for AI navigation and bug reports. Browser tests use real controls, including the visible developer tools when testing sandbox workflows; they do not call hidden gameplay mutators.
+
+See [testing setup and failure diagnosis](docs/testing.md) for port overrides, coverage scope, shared browser error capture and CI artifacts.
 
 Open **F2** or **Pause → Developer tools** to preview time/weather, spawn wildlife, fly, build freely, sculpt terrain, inspect entities and tune a variation without editing code. A world mutation marks the expedition as a sandbox and captures a solo recovery checkpoint. Normal **Settings → Rendering effects** changes only your device, including on ordinary multiplayer servers.
 

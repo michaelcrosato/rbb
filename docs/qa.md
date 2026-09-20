@@ -1,6 +1,22 @@
 # Alpha verification ledger
 
-Frontier progression and editable terrain verification recorded on 2026-09-19 Pacific. This ledger distinguishes implementation, automated evidence, and physical-device QA. The [public CI history](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml) records checks for each revision. Earlier release evidence is retained below as a historical baseline.
+Repository audit, frontier progression and editable terrain verification recorded on 2026-09-19 Pacific. This ledger distinguishes implementation, automated evidence, and physical-device QA. The [public CI history](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml) records checks for each revision. Earlier release evidence is retained below as a historical baseline.
+
+## Repository audit · 2026-09-19
+
+The audit covered save recovery/ownership, client and server message handling, authoritative inventory/crafting/combat/structure transactions, renderer resource lifecycle, the local/CI toolchain, container configuration and documentation. It began from clean `main` at `8d38d2a`; the baseline passed 139 unit/integration tests, types, lint and both builds.
+
+Confirmed fixes: simultaneous solo tabs could overwrite one another and their backups; a missing primary save ignored a healthy backup; the client accepted partially validated results/events/pongs and stale socket callbacks; movement queued while disconnected could be replayed after rejoining; scalar graphics changes disposed and recreated unrelated GPU resources. New regressions exercise save preservation, fresh Continue state, message validation, bounded reconnect/backoff, shutdown and actual render-target reuse/disposal.
+
+The test setup now includes pinned V8 coverage, a matching Chromium/system-dependency installer and one automatic browser error fixture for every desktop/touch scenario and extra survivor context. The browser world fixture refuses to reuse an existing server. [Setup, coverage interpretation and debugging](testing.md). `npm audit` reports zero known vulnerabilities across runtime and development dependencies at audit time.
+
+The initial browser verification found test assumptions exposed by asynchronous save ownership: some scenarios read state or pressed movement immediately after Continue/Start. They now wait for the visible HUD. A new scalar-settings check also needed to reopen the advanced disclosure after Apply rebuilt the form. Existing gameplay assertions, retry counts and timeout budgets are preserved.
+
+Final local verification on Windows / Node 24.20.0: `npm run check` passes **151 unit/integration tests**, types, lint and both builds with CI coverage enabled. All **34 desktop/touch scenarios** pass in **3.6 minutes**, zero retries, with the shared browser error assertions. Formatting passes. Desktop advanced effects, the blocked second-tab message and portrait/landscape touch screenshots were inspected directly. The Docker client is installed but its daemon is unavailable locally; the existing GitHub container job remains the build/readiness/restart gate.
+
+Four focused new regressions were also run against isolated copies of the original save/session code: stale writes, missing-primary recovery, obsolete socket callbacks and malformed server results all failed before and pass after. A separate resource-identity probe applied 20 exposure/reflection scalar changes with temporal, fog and reflection effects active: shared render targets were replaced **20 times before, zero times after**. This proves avoided resource churn, not an FPS gain. Coverage includes every source module: shared simulation line coverage is **92.83%**; the overall unit/integration line figure is about **40%**, because UI/GPU execution is primarily covered by the separate browser journeys.
+
+No physical RTX 3070 Ti/S25, WAN impairment or new full-scene performance claim is made by this audit. Published preview/production status is verified separately through GitHub checks and the live game.
 
 ## Hosted health runtime · 2026-09-19
 
@@ -151,7 +167,7 @@ Human device QA should record browser version, exact GPU/phone, viewport, preset
 - Weather is visual/environmental; temperature, slippery surfaces and weather-driven needs are future work. Ocean waves do not displace gameplay physics. Advanced rendering limitations and deferred techniques are listed in the [feature matrix](rendering-and-world.md).
 - Server limit: 4 simultaneous players, 512 registered survivors, 512 building pieces. This is a single-process SQLite deployment. Reconnects need a free player slot.
 - The world is a finite island, with chunk culling and optional GPU-buffer residency rather than unbounded world streaming.
-- Saves are origin-local, with one active solo slot and a previous healthy backup. Export before changing browser/device or clearing site data.
+- Saves are origin-local, with one active solo slot and a previous healthy backup. HTTPS/localhost solo sessions use Web Locks to prevent concurrent tabs; return to the menu or close the active tab to release ownership. Non-secure LAN origins lack Web Locks: changed-slot checks stop stale writes but cannot guarantee atomic exclusion for simultaneous writes. Use one solo tab there. Export before changing browser/device or clearing site data.
 - The local Docker daemon is not running; the image build/restart verification was executed successfully in GitHub CI.
 - The Vercel solo client is published and smoke-tested above. Public multiplayer hosting and target-device performance remain unverified.
 
@@ -159,7 +175,9 @@ Human device QA should record browser version, exact GPU/phone, viewport, preset
 
 ```sh
 npm run check
+npm run test:install
 npm run test:e2e
+npm run test:coverage
 npm run format:check
 npm run benchmark:rendering # dev server + installed Chrome; -- --software for SwiftShader
 ```

@@ -1,6 +1,6 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { diagnostics, startSolo, touchAimAt } from './helpers';
-import { importExpedition, observeProgressionErrors } from './progression-helpers';
+import { importExpedition } from './progression-helpers';
 import { generateWorld } from '../../src/shared/world';
 import { createBuilding, createState } from '../../src/shared/state';
 import { Simulation } from '../../src/shared/simulation';
@@ -8,7 +8,6 @@ import { Simulation } from '../../src/shared/simulation';
 test('touch crafting, equipment, shared storage and landmark tracking fit both orientations', async ({
   page,
 }, testInfo) => {
-  const errors = observeProgressionErrors(page);
   await startSolo(page, 'mobile');
   const world = generateWorld('quiet-frontier'),
     state = createState(world),
@@ -84,18 +83,11 @@ test('touch crafting, equipment, shared storage and landmark tracking fit both o
   await expect(page.locator('#toast')).toBeHidden();
   await page.screenshot({ path: testInfo.outputPath('tracked-portrait.png') });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  expect(errors).toEqual([]);
 });
 
 test('touch players drop and collect stacks with usable portrait and landscape panels', async ({
   page,
 }, testInfo) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => {
-    if (message.type() === 'error' || /GL_INVALID|WebGL:/.test(message.text()))
-      errors.push(message.text());
-  });
   await startSolo(page, 'mobile');
   await page.getByRole('button', { name: 'Pack and crafting', exact: true }).tap();
   await page.getByRole('button', { name: 'Manage Wild berries', exact: true }).tap();
@@ -118,17 +110,11 @@ test('touch players drop and collect stacks with usable portrait and landscape p
   await page.getByRole('button', { name: 'Take all that fits', exact: false }).tap();
   await expect.poll(async () => (await diagnostics(page)).player.inventory.berries).toBe(3);
   await expect.poll(async () => (await diagnostics(page)).bags.length).toBe(0);
-  expect(errors).toEqual([]);
 });
 
 test('terrain tools excavate through touch controls and developer brushes fit both orientations', async ({
   page,
 }, testInfo) => {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => {
-    if (m.type() === 'error' || /GL_INVALID|WebGL:/.test(m.text())) errors.push(m.text());
-  });
   await startSolo(page, 'mobile');
   await page.getByRole('button', { name: 'Pause', exact: true }).tap();
   await page.getByRole('button', { name: 'Developer tools' }).tap();
@@ -177,24 +163,18 @@ test('terrain tools excavate through touch controls and developer brushes fit bo
   const hint = await page.locator('#terrain-hint').boundingBox();
   expect(hint!.y).toBeGreaterThan(412 / 2 + 12);
   await page.screenshot({ path: testInfo.outputPath('sculpt-world-landscape.png') });
-  expect(errors).toEqual([]);
 });
 
 test('a four-survivor crew, invite and map fit portrait and landscape touch screens', async ({
   page,
-  browser,
+  newContext,
 }, testInfo) => {
   test.setTimeout(process.env.CI ? 240000 : 120000);
-  const contexts = await Promise.all(Array.from({ length: 3 }, () => browser.newContext()));
+  const contexts = await Promise.all(Array.from({ length: 3 }, () => newContext()));
   const teammates = await Promise.all(contexts.map((context) => context.newPage()));
-  const errors: string[] = [];
+
   try {
     for (const [i, survivor] of [page, ...teammates].entries()) {
-      survivor.on('pageerror', (error) => errors.push(error.message));
-      survivor.on('console', (message) => {
-        if (message.type() === 'error' || /GL_INVALID|WebGL:|cannot be cloned/.test(message.text()))
-          errors.push(message.text());
-      });
       await survivor.goto('/');
       await survivor.getByRole('button', { name: 'Settings', exact: true }).press('Enter');
       await survivor.locator('#quality').selectOption('mobile');
@@ -243,7 +223,6 @@ test('a four-survivor crew, invite and map fit portrait and landscape touch scre
     await page.screenshot({ path: testInfo.outputPath('multiplayer-mobile-map.png') });
     await page.getByRole('button', { name: 'Close panel' }).tap();
     await expect(page.getByRole('button', { name: 'Gather or place' })).toBeInViewport();
-    expect(errors).toEqual([]);
   } finally {
     await Promise.all(contexts.map((context) => context.close()));
   }
@@ -254,8 +233,7 @@ test('mobile layout, touch move/look, menus and landscape fit the screen', async
   isMobile,
 }, testInfo) => {
   test.skip(!isMobile, 'Touch controls require the mobile project.');
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Enter the frontier' })).toBeInViewport();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
@@ -272,9 +250,13 @@ test('mobile layout, touch move/look, menus and landscape fit the screen', async
     type: 'touchStart',
     touchPoints: [{ x: box.x + box.width / 2, y: box.y + box.height / 2 + 32, id: 1 }],
   });
-  await page.waitForTimeout(600);
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  expect((await diagnostics(page)).player.position.z).toBeGreaterThan(before.player.position.z + 1);
+  try {
+    await expect
+      .poll(async () => (await diagnostics(page)).player.position.z)
+      .toBeGreaterThan(before.player.position.z + 1);
+  } finally {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  }
   await cdp.send('Input.dispatchTouchEvent', {
     type: 'touchStart',
     touchPoints: [{ x: 200, y: 340, id: 2 }],
@@ -290,8 +272,9 @@ test('mobile layout, touch move/look, menus and landscape fit the screen', async
     await page.waitForTimeout(20);
   }
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  await page.waitForTimeout(100);
-  expect(Math.abs((await diagnostics(page)).player.yaw)).toBeGreaterThan(0.1);
+  await expect
+    .poll(async () => Math.abs((await diagnostics(page)).player.yaw))
+    .toBeGreaterThan(0.1);
   await page.screenshot({ path: testInfo.outputPath('mobile-game.png') });
   await page.getByRole('button', { name: 'Pack and crafting', exact: true }).tap();
   await expect(page.getByRole('heading', { name: 'A life, in your pack.' })).toBeVisible();
@@ -303,14 +286,11 @@ test('mobile layout, touch move/look, menus and landscape fit the screen', async
   await page.setViewportSize({ width: 915, height: 412 });
   await page.screenshot({ path: testInfo.outputPath('mobile-landscape.png') });
   await expect(page.getByRole('button', { name: 'Gather or place' })).toBeInViewport();
-  expect(errors).toEqual([]);
 });
 
 test('developer controls are usable by touch in portrait and landscape', async ({
   page,
 }, testInfo) => {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
   await startSolo(page);
   await page.getByRole('button', { name: 'Pause', exact: true }).tap();
   await page.getByRole('button', { name: 'Developer tools' }).tap();
@@ -332,18 +312,11 @@ test('developer controls are usable by touch in portrait and landscape', async (
   await expect(page.getByRole('button', { name: 'Hold to dive' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('mobile-coast.png') });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  expect(errors).toEqual([]);
 });
 
 test('advanced rendering controls fit touch layouts and survive orientation changes', async ({
   page,
 }, testInfo) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => {
-    if (message.type() === 'error' || /GL_INVALID|WebGL:|cannot be cloned/.test(message.text()))
-      errors.push(message.text());
-  });
   await startSolo(page, 'mobile');
   await page.getByRole('button', { name: 'Pause', exact: true }).tap();
   await page.getByRole('button', { name: 'Developer tools' }).tap();
@@ -367,5 +340,4 @@ test('advanced rendering controls fit touch layouts and survive orientation chan
   await page.setViewportSize({ width: 915, height: 412 });
   await page.screenshot({ path: testInfo.outputPath('advanced-mobile-landscape.png') });
   await expect(page.getByRole('button', { name: 'Gather or place' })).toBeInViewport();
-  expect(errors).toEqual([]);
 });

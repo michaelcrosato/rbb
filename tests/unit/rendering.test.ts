@@ -10,10 +10,63 @@ import { FrameState, halton } from '../../src/client/render/frame-state';
 import { MaterialHooks } from '../../src/client/render/material-hooks';
 import { CascadedShadows } from '../../src/client/render/cascades';
 import { SurfaceEffects } from '../../src/client/render/surfaces';
+import type { Ocean } from '../../src/client/render/surfaces';
+import { PostEffects } from '../../src/client/render/post';
 import { ScreenPass } from '../../src/client/render/screen-effects';
 import type { FrameBuffers } from '../../src/client/render/buffers';
 
 describe('rendering compatibility and device fallbacks', () => {
+  it('retains graph targets for scalar/device changes and releases them when effects change', () => {
+    const renderer = {
+      getPixelRatio: () => 1,
+      getSize: (size: THREE.Vector2) => size.set(640, 360),
+    } as unknown as THREE.WebGLRenderer;
+    const heightMap = new THREE.Texture();
+    const ocean = {
+      mesh: { material: { uniforms: { heightMap: { value: heightMap } } } },
+    } as unknown as Ocean;
+    const post = new PostEffects(
+      renderer,
+      new THREE.Scene(),
+      new THREE.PerspectiveCamera(),
+      [],
+      [],
+      new SurfaceEffects(),
+      ocean,
+    );
+    const settings = graphicsSchema.parse({
+      temporalUpscaling: true,
+      volumetricFog: true,
+      screenSpaceReflections: true,
+    });
+    post.configure(settings);
+    post.resize(640, 360, 1);
+    const buffers = post.buffers!;
+    const revision = post.graphRevision;
+    let disposed = 0;
+    buffers.target.addEventListener('dispose', () => disposed++);
+    post.configure({
+      ...settings,
+      exposure: 1.5,
+      viewDistance: 0.75,
+      saturation: 0.8,
+      fogStrength: 1.5,
+      reflectionStrength: 0.2,
+    });
+    post.resize(640, 360, 1);
+    expect(post.buffers).toBe(buffers);
+    expect(post.graphRevision).toBe(revision);
+    expect(disposed).toBe(0);
+    post.configure({ ...settings, motionBlur: true });
+    expect(post.buffers).not.toBe(buffers);
+    expect(disposed).toBe(1);
+    post.configure(DEFAULT_GRAPHICS);
+    expect(post.buffers).toBeUndefined();
+    expect(post.passes).toEqual([]);
+    expect(post.bytes).toBe(0);
+    post.dispose();
+    heightMap.dispose();
+  });
   it('keeps advanced features opt-in on every preset and fills old preferences', () => {
     const legacy = graphicsSchema.parse({ bloom: true, exposure: 1.2 });
     for (const tier of ['high', 'balanced', 'mobile', 'low'])
@@ -67,6 +120,17 @@ describe('camera history', () => {
     expect(pass.uniforms.sceneNormal.value).toBe(buffers.normal);
     expect(pass.uniforms.sceneDepth.value).toBe(buffers.depth);
     expect(pass.uniforms.inverseProjection.value).toBe(camera.projectionMatrixInverse);
+    pass.configure({
+      ...DEFAULT_GRAPHICS,
+      reflectionStrength: 0.25,
+      focusDistance: 30,
+      aperture: 0.02,
+      bufferView: 'velocity',
+    });
+    expect(pass.uniforms.strength.value).toBe(0.25);
+    expect(pass.uniforms.focus.value).toBe(30);
+    expect(pass.uniforms.aperture.value).toBe(0.02);
+    expect(pass.uniforms.mode.value).toBe(3);
     pass.dispose();
     buffers.normal.dispose();
     buffers.depth.dispose();

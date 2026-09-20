@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
 import { aimAt, diagnostics, startSolo, walkTo } from './helpers';
 import { terrainCeiling, terrainFloor } from '../../src/shared/terrain';
@@ -36,17 +36,8 @@ async function stamp(
   await page.getByRole('button', { name: 'Apply terrain brush', exact: true }).click();
   await expect.poll(async () => (await diagnostics(page)).terrainMesh.revision).toBe(before + 1);
 }
-function errorsOn(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => {
-    if (m.type() === 'error' || /GL_INVALID|WebGL:/.test(m.text())) errors.push(m.text());
-  });
-  return errors;
-}
-
 test('two ordinary online survivors see the same excavation and collide with it after reconnecting', async ({
-  browser,
+  newContext,
 }, testInfo) => {
   test.setTimeout(process.env.CI ? 240_000 : 150_000);
   const dir = await mkdtemp(join(tmpdir(), 'rbb-earthworks-browser-'));
@@ -58,12 +49,9 @@ test('two ordinary online survivors see the same excavation and collide with it 
     log: () => {},
   });
   const contextOptions = { viewport: { width: 1024, height: 640 }, deviceScaleFactor: 0.5 };
-  const contexts = await Promise.all([
-    browser.newContext(contextOptions),
-    browser.newContext(contextOptions),
-  ]);
+  const contexts = await Promise.all([newContext(contextOptions), newContext(contextOptions)]);
   const [a, b] = await Promise.all(contexts.map((context) => context.newPage()));
-  const errors = [errorsOn(a), errorsOn(b)];
+
   const connect = async (page: Page) => {
     await page.getByRole('button', { name: 'Join a world' }).press('Enter');
     await page.getByLabel('World server', { exact: true }).fill(`ws://127.0.0.1:${server.port}`);
@@ -111,7 +99,6 @@ test('two ordinary online survivors see the same excavation and collide with it 
     await expect.poll(async () => (await diagnostics(b)).terrainMesh.revision).toBe(1);
     expect((await diagnostics(b)).player.id).toBe(survivorId);
     expect((await diagnostics(b)).terrain).toEqual(edited.terrain);
-    expect(errors.flat()).toEqual([]);
   } finally {
     await Promise.all(contexts.map((context) => context.close()));
     await server.close();
@@ -122,7 +109,6 @@ test('two ordinary online survivors see the same excavation and collide with it 
 test('player controls excavate, deposit dirt and flatten visible terrain with a live mesh preview', async ({
   page,
 }, testInfo) => {
-  const errors = errorsOn(page);
   await startSolo(page, 'mobile');
   await page.keyboard.press('F2');
   await page.getByRole('button', { name: 'Replace pack with test kit' }).click();
@@ -166,13 +152,11 @@ test('player controls excavate, deposit dirt and flatten visible terrain with a 
   await page.keyboard.press('KeyT');
   await page.getByRole('button', { name: 'Put terrain tools away' }).click();
   expect((await diagnostics(page)).terrainTool.mode).toBeNull();
-  expect(errors).toEqual([]);
 });
 
 test('a survivor digs into a hillside with a pickaxe and enters the tunnel below its roof', async ({
   page,
 }, testInfo) => {
-  const errors = errorsOn(page);
   await startSolo(page, 'mobile');
   // Only prepare the hill and tool through the visible developer UI. Every cut
   // below uses the ordinary player command, including its reach and dirt cost.
@@ -209,14 +193,13 @@ test('a survivor digs into a hillside with a pickaxe and enters the tunnel below
   expect(dug.player.dev.freeBuild).toBe(false);
   await aimAt(page, 12, 10.5, 79);
   await page.screenshot({ path: testInfo.outputPath('hand-dug-hillside-tunnel.png') });
-  expect(errors).toEqual([]);
 });
 
 test('developer brushes form a hillside cave that can be entered, built in, saved and restored', async ({
   page,
 }, testInfo) => {
   test.setTimeout(process.env.CI ? 240_000 : 150_000);
-  const errors = errorsOn(page);
+
   await startSolo(page, 'mobile');
   await developerTerrain(page);
   await stamp(page, 'add', 12, 12, 78, 4);
@@ -249,6 +232,7 @@ test('developer brushes form a hillside cave that can be entered, built in, save
   await page.keyboard.press('Escape');
   await page.reload();
   await page.getByRole('button', { name: 'Continue expedition' }).click();
+  await expect(page.locator('#hud')).toBeVisible();
   await expect.poll(async () => (await diagnostics(page)).terrainMesh.revision).toBe(3);
   expect((await diagnostics(page)).terrain).toEqual(before.terrain);
   expect((await diagnostics(page)).buildings).toEqual(before.buildings);
@@ -258,5 +242,4 @@ test('developer brushes form a hillside cave that can be entered, built in, save
   await page.getByRole('button', { name: 'Restore checkpoint', exact: true }).click();
   await expect.poll(async () => (await diagnostics(page)).terrainMesh.samples).toBe(0);
   expect((await diagnostics(page)).buildings).toEqual([]);
-  expect(errors).toEqual([]);
 });

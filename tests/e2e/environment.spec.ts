@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { WEATHER } from '../../src/shared/environment';
 import type { WeatherKind } from '../../src/shared/environment';
 import { diagnostics, startSolo } from './helpers';
@@ -6,11 +6,6 @@ import { diagnostics, startSolo } from './helpers';
 test('developer tools preview sky and weather, change wildlife and restore a checkpoint', async ({
   page,
 }, testInfo) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
-  });
   await startSolo(page, 'mobile');
   const original = await diagnostics(page);
   await page.keyboard.press('F2');
@@ -58,17 +53,11 @@ test('developer tools preview sky and weather, change wildlife and restore a che
   expect(restored.player.dev.invincible).toBe(false);
   expect(restored.animals.length).toBe(original.animals.length);
   expect(restored.tuning.timeScale).toBe(1);
-  expect(errors).toEqual([]);
 });
 
 test('advanced variations validate, persist, and survive reload; renderer switches release resources', async ({
   page,
 }, testInfo) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
-  });
   await startSolo(page, 'mobile');
   await page.keyboard.press('F2');
   await page.getByRole('tab', { name: 'World variables' }).click();
@@ -116,20 +105,15 @@ test('advanced variations validate, persist, and survive reload; renderer switch
   await page.keyboard.press('Escape'); // Saves via the actual pause flow.
   await page.reload();
   await page.getByRole('button', { name: 'Continue expedition' }).click();
+  await expect(page.locator('#hud')).toBeVisible();
   await expect.poll(async () => (await diagnostics(page)).tuning.gravity).toBe(0.5);
   expect((await diagnostics(page)).tuning.weatherAutomatic).toBe(false);
   expect((await diagnostics(page)).graphics.collisionDebug).toBe(true);
-  expect(errors).toEqual([]);
 });
 
 test('Low preserves survival and progression while suppressing enhanced effects', async ({
   page,
 }, testInfo) => {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (e) => {
-    if (e.type() === 'error') errors.push(e.text());
-  });
   await startSolo(page, 'mobile');
   const original = await diagnostics(page);
   await page.keyboard.press('Escape');
@@ -160,5 +144,4 @@ test('Low preserves survival and progression while suppressing enhanced effects'
     .poll(async () => (await diagnostics(page)).effectiveGraphics.planarReflections)
     .toBe(true);
   expect((await diagnostics(page)).sandbox).toBe(false);
-  expect(errors).toEqual([]);
 });

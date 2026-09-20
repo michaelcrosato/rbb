@@ -113,6 +113,7 @@ export class WorldRenderer {
   get pipeline() {
     return {
       passes: [...this.post.passes],
+      graphRevision: this.post.graphRevision,
       sharedBuffer: !!this.post.buffers,
       estimatedTargetMiB: Math.round((this.post.bytes / 1048576) * 10) / 10,
       historyReset: this.post.frame.resetReason,
@@ -531,9 +532,12 @@ export class WorldRenderer {
     for (const chunk of this.cullables)
       if (chunk.kind === 'terrain')
         chunk.object.castShadow = graphics.cascadedShadows || !!chunk.object.userData.terrainEdited;
-    this.sun.shadow.mapSize.setScalar(tier === 'high' ? 2048 : 1024);
-    this.sun.shadow.map?.dispose();
-    this.sun.shadow.map = null;
+    const shadowSize = tier === 'high' ? 2048 : 1024;
+    if (this.sun.shadow.mapSize.x !== shadowSize) {
+      this.sun.shadow.mapSize.setScalar(shadowSize);
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null;
+    }
     this.camera.fov = settings.fov;
     this.camera.updateProjectionMatrix();
     this.resize();

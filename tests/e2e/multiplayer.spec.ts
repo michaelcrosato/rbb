@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -14,16 +14,7 @@ test.use({
   trace: { mode: 'retain-on-failure', screenshots: false, snapshots: false, sources: true },
 });
 
-function observeErrors(page: Page, errors: string[]) {
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => {
-    if (message.type() === 'error' || /GL_INVALID|WebGL:|cannot be cloned/.test(message.text()))
-      errors.push(message.text());
-  });
-}
-
-async function prepare(page: Page, errors: string[]) {
-  observeErrors(page, errors);
+async function prepare(page: Page) {
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).press('Enter');
   await page.locator('#quality').selectOption('mobile');
@@ -53,10 +44,10 @@ test('session controls are ready before the first game frame after joining or re
     dataDir,
     log: () => {},
   });
-  const errors: string[] = [];
+
   try {
     await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
-    await prepare(page, errors);
+    await prepare(page);
     await expect.poll(async () => (await diagnostics(page)).renderer.drawCalls).toBeGreaterThan(0);
     // Keep the rendered menu, but delay the next application frame. Joining and
     // opening menus still use real network events and keyboard controls.
@@ -73,7 +64,6 @@ test('session controls are ready before the first game frame after joining or re
       await page.getByRole('button', { name: 'Pause', exact: true }).press('Enter');
     await expect(page.getByRole('button', { name: 'Save & return to menu' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Crew & invite' })).toHaveCount(0);
-    expect(errors).toEqual([]);
   } finally {
     await page.close();
     await server.close();
@@ -82,7 +72,7 @@ test('session controls are ready before the first game frame after joining or re
 });
 
 test('four survivors play in one world, share a camp and invite, and free a full-world slot', async ({
-  browser,
+  newContext,
 }, testInfo) => {
   test.setTimeout(process.env.CI ? 360000 : 180000);
   const dataDir = await mkdtemp(join(tmpdir(), 'rbb-four-browser-'));
@@ -96,20 +86,18 @@ test('four survivors play in one world, share a camp and invite, and free a full
   // Five software-rendered worlds share one CI runner. Bound raster work while
   // preserving the desktop layout and all gameplay assertions.
   const contextOptions = { viewport: { width: 1024, height: 640 }, deviceScaleFactor: 0.5 };
-  const contexts = [await browser.newContext(contextOptions)];
-  const errors: string[] = [];
+  const contexts = [await newContext(contextOptions)];
+
   const serverUrl = `ws://127.0.0.1:${server.port}/`;
   try {
     const a = await contexts[0].newPage();
-    await prepare(a, errors);
+    await prepare(a);
     // Configure graphics through the real UI once, before creating any survivor.
     // Reuse only those saved preferences in independent browser contexts, avoiding
     // repeated full-resolution startup and world reloads on software-rendered CI.
     const preferences = await contexts[0].storageState();
     const peerContexts = await Promise.all(
-      Array.from({ length: 4 }, () =>
-        browser.newContext({ ...contextOptions, storageState: preferences }),
-      ),
+      Array.from({ length: 4 }, () => newContext({ ...contextOptions, storageState: preferences })),
     );
     contexts.push(...peerContexts);
     const [b, c, d, overflow] = await Promise.all(peerContexts.map((context) => context.newPage()));
@@ -126,7 +114,6 @@ test('four survivors play in one world, share a camp and invite, and free a full
     expect(await a.evaluate(() => navigator.clipboard.readText())).toBe(invite);
 
     for (const [i, page] of [b, c, d, overflow].entries()) {
-      observeErrors(page, errors);
       await page.goto(invite);
       await expect(page.getByRole('heading', { name: 'Better with company.' })).toBeVisible();
       await expect(page.getByLabel('World server', { exact: true })).toHaveValue(serverUrl);
@@ -246,7 +233,6 @@ test('four survivors play in one world, share a camp and invite, and free a full
     await expect.poll(async () => (await diagnostics(overflow)).players.length).toBe(3);
     expect((await diagnostics(overflow)).buildings[0]).toEqual(building);
     expect(server.diagnostics()).toMatchObject({ connections: 4, healthy: true });
-    expect(errors).toEqual([]);
   } finally {
     await Promise.all(contexts.map((context) => context.close()));
     await server.close();
@@ -255,7 +241,7 @@ test('four survivors play in one world, share a camp and invite, and free a full
 });
 
 test('separate survivors in the same browser retain their identities across reloads', async ({
-  browser,
+  newContext,
 }) => {
   const dataDir = await mkdtemp(join(tmpdir(), 'rbb-tabs-'));
   const server = await startWorldServer({
@@ -265,16 +251,16 @@ test('separate survivors in the same browser retain their identities across relo
     dataDir,
     log: () => {},
   });
-  const context = await browser.newContext();
+  const context = await newContext();
   const a = await context.newPage(),
     b = await context.newPage();
-  const errors: string[] = [];
+
   const url = `ws://127.0.0.1:${server.port}`;
   try {
-    await prepare(a, errors);
+    await prepare(a);
     await connect(a, url, 'First');
     const first = (await diagnostics(a)).player.id;
-    observeErrors(b, errors);
+
     await b.goto('/');
     await b.getByRole('button', { name: 'Join a world' }).press('Enter');
     await b.getByRole('button', { name: 'Join world', exact: true }).press('Enter');
@@ -296,7 +282,6 @@ test('separate survivors in the same browser retain their identities across relo
       expect((await diagnostics(page)).player.name).toBe(name);
     }
     expect(server.diagnostics()).toMatchObject({ players: 2, connections: 2 });
-    expect(errors).toEqual([]);
   } finally {
     await context.close();
     await server.close();

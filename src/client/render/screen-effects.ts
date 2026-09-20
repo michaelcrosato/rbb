@@ -75,6 +75,13 @@ const shaders: Record<ScreenEffect, string> = {
 };
 
 export class ScreenPass extends ShaderPass {
+  configure(settings: GraphicsSettings): void {
+    this.uniforms.strength.value =
+      this.effect === 'reflections' ? settings.reflectionStrength : settings.motionBlurStrength;
+    this.uniforms.focus.value = settings.focusDistance;
+    this.uniforms.aperture.value = settings.aperture;
+    this.uniforms.mode.value = ['off', 'depth', 'normals', 'velocity'].indexOf(settings.bufferView);
+  }
   constructor(
     readonly effect: ScreenEffect,
     buffers: FrameBuffers,

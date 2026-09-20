@@ -15,7 +15,7 @@ import { TerrainControls } from './terrain-tools';
 import { terrainAim } from '../shared/earthworks';
 import type { Earthwork } from '../shared/earthworks';
 import type { InputAction } from './input';
-import { SaveStore } from './persistence';
+import { SaveConflictError, SaveStore } from './persistence';
 import { DEFAULT_SETTINGS, WorldRenderer } from './render/renderer';
 import type { RenderSettings, Target } from './render/renderer';
 import { getSnapshot, LocalSession, RemoteSession } from './session';
@@ -63,6 +63,8 @@ export class Game {
   private request = 0;
   private disposed = false;
   private connecting = false;
+  private openingSolo = false;
+  private saveConflict = false;
   private pointerRelease?: Promise<void>;
   private finishPointerRelease?: () => void;
   private readonly abort = new AbortController();
@@ -362,14 +364,7 @@ export class Game {
       if (this.saved) this.openPanel('new');
       else await this.startNew();
     } else if (action === 'new-confirmed') await this.startNew();
-    else if (action === 'continue' && this.saved)
-      await this.attach(
-        new LocalSession(
-          this.saved.state.seed,
-          parseSave(JSON.stringify(this.saved)).state,
-          this.saved.playerId,
-        ),
-      );
+    else if (action === 'continue' && this.saved) await this.openSolo();
     else if (action === 'close' || action === 'resume') this.resume();
     else if (
       [
@@ -524,6 +519,7 @@ export class Game {
       this.save();
       this.session?.close();
       this.session = null;
+      this.saves.release();
       this.audio.environment(0, 0, 0, false);
       this.input.active = false;
       this.input.reset();
@@ -564,12 +560,42 @@ export class Game {
       );
       return;
     }
-    await this.attach(new LocalSession(result.data));
-    this.save();
+    await this.openSolo(result.data);
+  }
+
+  private async openSolo(seed?: string): Promise<void> {
+    if (this.openingSolo) return;
+    this.openingSolo = true;
+    try {
+      await this.saves.acquire(navigator.locks);
+      if (this.disposed) {
+        this.saves.release();
+        return;
+      }
+      // Another tab may have saved since the menu was opened. Read under the lock.
+      const loaded = this.saves.load();
+      this.saved = loaded.save;
+      if (!seed && !loaded.save)
+        throw new Error(loaded.warning ?? 'No saved expedition is available.');
+      this.saveConflict = false;
+      await this.attach(
+        seed
+          ? new LocalSession(seed)
+          : new LocalSession(loaded.save!.state.seed, loaded.save!.state, loaded.save!.playerId),
+      );
+      if (seed) this.save();
+      if (loaded.warning) this.ui.toast(loaded.warning, true);
+    } catch (error) {
+      if (this.session?.mode !== 'solo') this.saves.release();
+      throw error;
+    } finally {
+      this.openingSolo = false;
+    }
   }
 
   private async attach(session: Session): Promise<void> {
     this.session?.close();
+    if (session.mode !== 'solo') this.saves.release();
     this.session = session;
     this.ui.inviteUrl = session instanceof RemoteSession ? worldInviteUrl(session.serverUrl) : '';
     this.developer.attach();
@@ -708,10 +734,20 @@ export class Game {
 
   private save(): void {
     if (this.session?.mode !== 'solo') return;
+    if (this.saveConflict) {
+      this.ui.setStatus('Save changed in another tab · export from pause menu');
+      return;
+    }
     try {
       this.saved = this.saves.save(this.session.state, this.session.playerId);
       this.ui.setStatus('✓ Saved on this device');
-    } catch {
+    } catch (error) {
+      if (error instanceof SaveConflictError) {
+        this.saveConflict = true;
+        this.ui.setStatus('Save changed in another tab · export from pause menu');
+        this.ui.toast(error.message, true);
+        return;
+      }
       this.ui.setStatus('Save unavailable · export from pause menu');
       this.ui.toast(
         'Your browser could not save. Export your expedition from the pause menu before leaving.',
@@ -728,18 +764,29 @@ export class Game {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   private async importFile(file?: File): Promise<void> {
-    if (!file) return;
+    if (!file || this.openingSolo) return;
+    this.openingSolo = true;
     try {
       if (file.size > MAX_SAVE_BYTES) throw new Error('Save files must be smaller than 16 MB.');
       const raw = await file.text();
       const save = parseSave(raw);
+      await this.saves.acquire(navigator.locks);
+      if (this.disposed) {
+        this.saves.release();
+        return;
+      }
+      this.saves.load();
       // A valid import deliberately replaces this device's active solo expedition; keep a backup.
       this.saves.import(raw);
       this.saved = save;
+      this.saveConflict = false;
       await this.attach(new LocalSession(save.state.seed, save.state, save.playerId));
       this.ui.toast('Expedition imported. Welcome back.');
     } catch (error) {
+      if (this.session?.mode !== 'solo') this.saves.release();
       this.ui.toast(error instanceof Error ? error.message : 'Could not read that save.', true);
+    } finally {
+      this.openingSolo = false;
     }
   }
 
@@ -881,6 +928,7 @@ export class Game {
     this.abort.abort();
     this.save();
     this.session?.close();
+    this.saves.release();
     this.developer.dispose();
     this.input.dispose();
     this.audio.dispose();

@@ -1,30 +1,17 @@
 import { z } from 'zod';
 import { developerSchema } from './developer';
 import { earthworkSchema } from './earthworks';
-import { terrainUpdate } from './terrain';
-import type { TerrainUpdate } from './terrain';
+import { terrainUpdate, terrainUpdateSchema } from './terrain';
+import { stateSchema } from './save';
+import { moveSchema } from './movement';
 import { BALANCE, BUILDING_IDS, ITEM_IDS, RECIPE_IDS } from './content';
-import type { GameEvent, GameState, PlayerState, Result } from './state';
+import type { GameState } from './state';
 import { WORLD_HALF, generateWorld } from './world';
 import type { WorldDefinition } from './world';
 import { PROTOCOL_VERSION } from './protocol-version';
 
 export { PROTOCOL_VERSION } from './protocol-version';
-export const moveSchema = z
-  .object({
-    forward: z.number().finite().min(-1).max(1),
-    strafe: z.number().finite().min(-1).max(1),
-    yaw: z
-      .number()
-      .finite()
-      .min(-Math.PI * 2)
-      .max(Math.PI * 2),
-    pitch: z.number().finite().min(-1.5).max(1.5),
-    sprint: z.boolean(),
-    jump: z.boolean(),
-    dive: z.boolean().default(false),
-  })
-  .strict();
+export { moveSchema } from './movement';
 export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('terrain'), request: earthworkSchema }).strict(),
   z.object({ type: z.literal('dev'), request: developerSchema }).strict(),
@@ -116,37 +103,89 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
       command: commandSchema,
     })
     .strict(),
-  z.object({ type: z.literal('ping'), at: z.number().finite() }).strict(),
+  z.object({ type: z.literal('ping'), at: z.number().finite().min(0) }).strict(),
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
-export type PublicPlayer = Pick<
-  PlayerState,
-  'id' | 'name' | 'position' | 'yaw' | 'health' | 'equipped' | 'worn'
->;
-export interface Snapshot {
-  terrain?: TerrainUpdate;
-  environment: GameState['environment'];
-  tuning: GameState['tuning'];
-  sandbox: boolean;
-  devAllowed: boolean;
-  tick: number;
-  time: number;
-  seed: string;
-  self: PlayerState;
-  players: PublicPlayer[];
-  resources: GameState['resources'];
-  buildings: GameState['buildings'];
-  bags: GameState['bags'];
-  animals: GameState['animals'];
-  sites: GameState['sites'];
-}
-export type ServerMessage =
-  | { type: 'welcome'; protocol: number; playerId: string; token: string; snapshot: Snapshot }
-  | { type: 'snapshot'; snapshot: Snapshot }
-  | { type: 'result'; seq: number; result: Result }
-  | { type: 'events'; events: GameEvent[] }
-  | { type: 'error'; message: string }
-  | { type: 'pong'; at: number };
+const playerFields = stateSchema.shape.players.valueType.shape;
+const publicPlayerSchema = z
+  .object({
+    id: playerFields.id,
+    name: playerFields.name,
+    position: playerFields.position,
+    yaw: playerFields.yaw,
+    health: playerFields.health,
+    equipped: playerFields.equipped,
+    worn: playerFields.worn,
+  })
+  .strict();
+export const snapshotSchema = z
+  .object({
+    terrain: terrainUpdateSchema.optional(),
+    environment: stateSchema.shape.environment,
+    tuning: stateSchema.shape.tuning,
+    sandbox: z.boolean(),
+    devAllowed: z.boolean(),
+    tick: stateSchema.shape.tick,
+    time: stateSchema.shape.time,
+    seed: stateSchema.shape.seed,
+    self: stateSchema.shape.players.valueType,
+    players: z.array(publicPlayerSchema).max(BALANCE.maxPlayers - 1),
+    resources: stateSchema.shape.resources,
+    buildings: stateSchema.shape.buildings,
+    bags: stateSchema.shape.bags,
+    animals: stateSchema.shape.animals,
+    sites: stateSchema.shape.sites,
+  })
+  .strict()
+  .refine(
+    (s) => new Set([s.self.id, ...s.players.map((p) => p.id)]).size === s.players.length + 1,
+    'Duplicate survivor identity',
+  );
+const messageText = z.string().max(2048);
+export const serverMessageSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      type: z.literal('welcome'),
+      protocol: z.literal(PROTOCOL_VERSION),
+      playerId: playerFields.id,
+      token: z.string().regex(/^[a-f0-9]{64}$/),
+      snapshot: snapshotSchema,
+    })
+    .strict()
+    .refine((m) => m.playerId === m.snapshot.self.id, 'Survivor identity mismatch')
+    .refine((m) => m.snapshot.terrain?.base === -1, 'Welcome requires a terrain baseline'),
+  z.object({ type: z.literal('snapshot'), snapshot: snapshotSchema }).strict(),
+  z
+    .object({
+      type: z.literal('result'),
+      seq: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+      result: z.object({ ok: z.boolean(), message: messageText }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('events'),
+      events: z
+        .array(
+          z
+            .object({
+              type: z.enum(['gather', 'craft', 'build', 'damage', 'death', 'consume', 'loot']),
+              playerId: playerFields.id,
+              message: messageText,
+              x: playerFields.position.shape.x.optional(),
+              z: playerFields.position.shape.z.optional(),
+            })
+            .strict(),
+        )
+        .max(256),
+    })
+    .strict(),
+  z.object({ type: z.literal('error'), message: messageText }).strict(),
+  z.object({ type: z.literal('pong'), at: z.number().finite().min(0) }).strict(),
+]);
+export type PublicPlayer = z.infer<typeof publicPlayerSchema>;
+export type Snapshot = z.infer<typeof snapshotSchema>;
+export type ServerMessage = z.infer<typeof serverMessageSchema>;
 
 export function snapshotFor(
   state: GameState,

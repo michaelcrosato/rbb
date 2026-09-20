@@ -140,6 +140,12 @@ export class VolumePass extends Pass {
     });
     this.quad = new FullScreenQuad(this.material);
   }
+  configure(settings: GraphicsSettings): void {
+    this.settings = settings;
+    this.material.uniforms.cloudBase.value = settings.cloudAltitude;
+    this.material.uniforms.thickness.value = settings.cloudThickness;
+    this.material.uniforms.steps.value = settings.volumeSteps;
+  }
   update(
     atmosphere: Atmosphere,
     tuning: Tuning,

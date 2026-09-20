@@ -33,8 +33,10 @@ Use `shared/terrain.ts` for field queries and brush planning, and `shared/earthw
 
 ## Networking
 
-`clientMessageSchema` rejects unknown fields, invalid numbers and content IDs. Extend protocol versions deliberately when old clients cannot interpret new snapshots. Every new command needs server tests for authority and replay behavior. Avoid sending private state about other players. Remote camera smoothing is present; client prediction/reconciliation and interpolated remote actors should be added with network impairment tests before faster combat.
+`clientMessageSchema` and `serverMessageSchema` in `shared/protocol.ts` reject unknown fields, invalid numbers and content IDs; wire types derive from their schemas. Save and network validation share `shared/movement.ts` without importing each other's formats. Extend protocol versions deliberately when old clients cannot interpret new snapshots. Every new command needs server tests for authority and replay behavior. Avoid sending private state about other players. Camera and remote actors already smooth authoritative samples at render rate; client prediction/reconciliation and buffered snapshot interpolation remain future work and need network impairment tests before faster combat.
 
 ## AI iteration workflow
 
 Read the current worktree and contributor instructions, implement one coherent slice, test domain invariants headlessly, then run the actual browser flow. Use `window.rbbDiagnostics()` only as observation. Capture screenshots and traces when verification fails. Keep balance decisions and unresolved physical-device QA visible. Do not lower acceptance tests simply to turn CI green.
+
+See [testing setup](testing.md) for the pinned browser installation, coverage reports and the shared browser fixture. After local checks pass, follow the standing commit, PR, GitHub-check, merge and deployed smoke-verification procedure in [AGENTS.md](../AGENTS.md).

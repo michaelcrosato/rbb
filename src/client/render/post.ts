@@ -47,7 +47,9 @@ export class PostEffects {
   private inputWidth = 1;
   private inputHeight = 1;
   private scale = 1;
+  private jitterVelocity = new THREE.Vector2();
   private screenPasses: ScreenPass[] = [];
+  graphRevision = 0;
   passes: string[] = [];
   get bytes(): number {
     return (
@@ -95,8 +97,25 @@ export class PostEffects {
       this.dispose();
       return;
     }
-    const signature = JSON.stringify(settings);
-    if (signature !== this.signature) this.dispose();
+    // Only changes to pass/attachment ownership rebuild the graph. Device settings
+    // and effect scalars do not need new textures, shader materials or history targets.
+    const signature = JSON.stringify([
+      bloom,
+      ao,
+      sunShafts || lensFlare,
+      settings.screenSpaceReflections,
+      settings.volumetricClouds || settings.volumetricFog,
+      settings.depthOfField,
+      settings.motionBlur,
+      settings.temporalUpscaling,
+      settings.bufferView !== 'off',
+      screen || settings.gpuOcclusion,
+      screen || bloom || ao || sunShafts || lensFlare || saturation !== 1 || contrast !== 1,
+    ]);
+    if (signature !== this.signature) {
+      this.dispose();
+      this.graphRevision++;
+    }
     this.signature = signature;
     this.scale = settings.temporalUpscaling ? settings.temporalScale : 1;
     if ((screen || settings.gpuOcclusion) && !this.buffers)
@@ -158,6 +177,9 @@ export class PostEffects {
     }
     this.grade!.uniforms.saturation.value = saturation;
     this.grade!.uniforms.contrast.value = contrast;
+    this.shafts?.configure(sunShafts, lensFlare);
+    this.volumes?.configure(settings);
+    for (const pass of this.screenPasses) pass.configure(settings);
   }
   private addScreen(
     effect: ConstructorParameters<typeof ScreenPass>[0],
@@ -199,11 +221,11 @@ export class PostEffects {
     this.frame.begin(this.camera, this.inputWidth, this.inputHeight, !!this.temporal, time);
   }
   render(dt: number): void {
+    this.jitterVelocity.copy(this.frame.previousJitter).sub(this.frame.jitter);
+    this.jitterVelocity.x /= this.inputWidth;
+    this.jitterVelocity.y /= this.inputHeight;
     for (const pass of this.screenPasses)
-      pass.uniforms.jitterVelocity.value
-        .copy(this.frame.previousJitter)
-        .sub(this.frame.jitter)
-        .multiply(new THREE.Vector2(1 / this.inputWidth, 1 / this.inputHeight));
+      pass.uniforms.jitterVelocity.value.copy(this.jitterVelocity);
     this.buffers?.render(this.renderer, this.scene, this.camera, this.bufferExcluded);
     if (this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);

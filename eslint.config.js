@@ -10,6 +10,7 @@ export default ts.config(
       'dist/**',
       'dist-server/**',
       'node_modules/**',
+      'coverage/**',
       '.artifacts/**',
       'playwright-report/**',
       'test-results/**',

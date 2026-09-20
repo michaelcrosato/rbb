@@ -38,15 +38,6 @@ export async function importExpedition(page: Page, state: GameState, touch = fal
     .toEqual(state.players.local.inventory);
 }
 
-export function observeProgressionErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => {
-    if (message.type() === 'error' || /GL_INVALID|WebGL:/.test(message.text()))
-      errors.push(message.text());
-  });
-  return errors;
-}
 export async function inspector(page: Page): Promise<void> {
   if ((await diagnostics(page)).panel !== 'developer') await page.keyboard.press('F2');
   await page.getByRole('tab', { name: 'Inspector', exact: true }).press('Enter');
