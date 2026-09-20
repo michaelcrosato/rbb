@@ -95,4 +95,33 @@ describe('versioned saves and recovery', () => {
     expect(broken.load().warning).toContain('unavailable');
     expect(() => broken.save(fixture(), 'local')).toThrow();
   });
+  it('refuses a stale tab write without changing either save slot', () => {
+    const storage = memory(),
+      first = new SaveStore(storage),
+      second = new SaveStore(storage);
+    const state = fixture();
+    first.save(state, 'local');
+    second.load();
+    state.players.local.inventory.wood = 12;
+    first.save(state, 'local');
+    const before = [...storage.data];
+    expect(() => second.save(fixture(), 'local')).toThrow('Another tab changed');
+    expect([...storage.data]).toEqual(before);
+    // An explicit reload adopts the current expedition and permits saving again.
+    const loaded = second.load().save!;
+    second.save(loaded.state, loaded.playerId);
+    expect(second.load().save!.state.players.local.inventory.wood).toBe(12);
+  });
+  it('recovers a healthy backup if the latest slot is missing', () => {
+    const storage = memory(),
+      store = new SaveStore(storage);
+    store.save(fixture(), 'local');
+    store.save(fixture(), 'local');
+    storage.data.delete('rbb.save.v1');
+    const loaded = store.load();
+    expect(loaded.save?.state.seed).toBe('save-test');
+    expect(loaded.warning).toContain('recovered');
+    store.save(loaded.save!.state, 'local');
+    expect(store.load().warning).toBeUndefined();
+  });
 });

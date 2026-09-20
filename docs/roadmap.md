@@ -66,16 +66,23 @@ Player-hosted browser sessions, automatic relays/server discovery, reserved reco
 
 [Controls, module ownership and bounds](progression-expansion.md). Storage permissions, queued crafting, weapon/tool wear, magazine/reload mechanics, projectile ballistics, more landmark layouts and human balance testing remain follow-up work. Published revisions are tracked in GitHub deployments; see [QA](qa.md) for verification evidence.
 
-## Engineering follow-ups from the 2026-09-14 audit
+## Repository audit · 2026-09-19
+
+- [x] Protect active solo saves across tabs on HTTPS/localhost, reject stale writes, recover a missing primary slot from a valid backup, and reload fresh state when continuing.
+- [x] Move server-message schemas beside command schemas; infer wire types and test reconnect, stale callbacks, malformed data and offline input with fake sockets/clocks.
+- [x] Preserve post-processing targets on scalar/device setting changes and retain unchanged sun shadow maps; cover graph reuse and disposal.
+- [x] Unify browser exception/console/WebGL checks across all pages and survivors, wait for session readiness, and replace fixed movement sleeps with observed state.
+- [x] Add pinned V8 coverage tooling, a browser-install command, CI coverage artifacts and a [testing guide](testing.md); isolate the browser world fixture from existing servers.
+
+The [QA ledger](qa.md) records verification results and limitations, including non-secure-origin save fallback and the distinction between unit coverage and browser evidence.
+
+## Remaining engineering follow-ups
 
 Verified by reading the code, deferred because each needs browser or hardware evidence before it is clearly worth its risk:
 
-- Solo saves have no cross-tab guard; two tabs autosaving the same origin overwrite each other and the backup slot. Use `navigator.locks` or `storage` events to stop the second tab's autosave with a message.
-- `session.ts` hand-mirrors `Snapshot` in its own zod schema. Move a server-message schema next to `clientMessageSchema` and infer the types from it.
 - `game.ts` is orchestrator, settings store, form reader, importer and overlay renderer, and `UI` keeps shadow copies of mode and player state. Extract a settings store and typed form readers before adding settings.
-- `PostEffects.configure` disposes the whole post graph on any graphics change, including exposure or view distance. Rebuild only when a key the graph consumes changes; apply scalars as uniform updates. GTAO still rasterizes its own normal pre-pass although the shared depth/normal buffers exist.
+- GTAO still rasterizes its own normal pre-pass although the shared depth/normal buffers exist. Investigate reuse with visual equivalence and GPU measurements before replacing it.
 - `renderer.ts` owns culling tables, collision-debug geometry, actor interpolation, camp lights and auto-quality. Split by ownership, and derive the height-map encoding constants in the water, buffer and fog shaders from `WORLD_HALF`/`WORLD_SIZE`.
-- Browser suites capture errors with three different strictness levels; share one fixture with the WebGL regex, and replace the remaining fixed-sleep movement assertions with condition waits. `RemoteSession` reconnect and backoff have no fake-socket unit test.
 - Non-terrain snapshots remain full state at 10 Hz per client (about 47 KB each with a 400-piece camp). Terrain now uses revision patches. General interest management and entity deltas remain prerequisites for larger worlds or player counts.
 
 ## Subsequent iterations

@@ -1,9 +1,8 @@
-import { z } from 'zod';
 import { BALANCE } from '../shared/content';
-import { PROTOCOL_VERSION, snapshotFor } from '../shared/protocol';
-import type { Command, ServerMessage, Snapshot } from '../shared/protocol';
-import { stateSchema, MAX_SAVE_BYTES } from '../shared/save';
-import { terrainUpdateSchema, applyTerrainUpdate } from '../shared/terrain';
+import { PROTOCOL_VERSION, serverMessageSchema, snapshotFor } from '../shared/protocol';
+import type { Command, Snapshot } from '../shared/protocol';
+import { MAX_SAVE_BYTES } from '../shared/save';
+import { applyTerrainUpdate } from '../shared/terrain';
 import { Simulation } from '../shared/simulation';
 import { createState } from '../shared/state';
 import type { GameEvent, GameState, Result } from '../shared/state';
@@ -72,36 +71,6 @@ export class LocalSession implements Session {
   close(): void {}
 }
 
-const playerFields = stateSchema.shape.players.valueType.shape;
-const publicPlayer = z
-  .object({
-    id: playerFields.id,
-    name: playerFields.name,
-    position: playerFields.position,
-    yaw: playerFields.yaw,
-    health: playerFields.health,
-    equipped: playerFields.equipped,
-    worn: playerFields.worn,
-  })
-  .strict();
-const snapshotSchema = z.object({
-  terrain: terrainUpdateSchema.optional(),
-  environment: stateSchema.shape.environment,
-  tuning: stateSchema.shape.tuning,
-  sandbox: z.boolean(),
-  devAllowed: z.boolean(),
-  tick: stateSchema.shape.tick,
-  time: stateSchema.shape.time,
-  seed: stateSchema.shape.seed,
-  self: stateSchema.shape.players.valueType,
-  players: z.array(publicPlayer).max(BALANCE.maxPlayers - 1),
-  resources: stateSchema.shape.resources,
-  buildings: stateSchema.shape.buildings,
-  bags: stateSchema.shape.bags,
-  animals: stateSchema.shape.animals,
-  sites: stateSchema.shape.sites,
-});
-
 /** Commands only. The server owns movement, inventory, world mutations, and time. */
 export class RemoteSession implements Session {
   readonly mode = 'online' as const;
@@ -151,13 +120,17 @@ export class RemoteSession implements Session {
     const socket = new WebSocket(this.serverUrl);
     this.socket = socket;
     this.seq = 0;
+    this.pendingMove = undefined;
     let welcomed = false;
+    const current = () => !this.closed && this.socket === socket;
     const timeout = setTimeout(() => {
+      if (!current()) return;
       fail?.(new Error('The world server did not respond. Check the address and try again.'));
       if (fail) this.closed = true;
       socket.close();
     }, 8000);
-    socket.onopen = () =>
+    socket.onopen = () => {
+      if (!current()) return;
       socket.send(
         JSON.stringify({
           type: 'hello',
@@ -166,62 +139,65 @@ export class RemoteSession implements Session {
           ...(this.token ? { token: this.token } : {}),
         }),
       );
+    };
     socket.onmessage = (e) => {
-      this.lastMessage = performance.now();
+      if (!current()) return;
       try {
         if (typeof e.data !== 'string' || e.data.length > MAX_SAVE_BYTES)
           throw new Error('Invalid server payload.');
-        const message = JSON.parse(e.data) as ServerMessage;
+        const message = serverMessageSchema.parse(JSON.parse(e.data));
+        if (!welcomed && message.type !== 'welcome' && message.type !== 'error')
+          throw new Error('Join before receiving world updates.');
         if (message.type === 'welcome') {
-          if (message.protocol !== PROTOCOL_VERSION || !/^[a-f0-9]{64}$/.test(message.token))
-            throw new Error('Server protocol is incompatible.');
-          const snapshot = snapshotSchema.parse(message.snapshot);
+          if (welcomed) throw new Error('Duplicate welcome.');
+          const snapshot = message.snapshot;
           this.playerId = snapshot.self.id;
+          this.applySnapshot(snapshot);
           this.token = message.token;
+          let stored = false;
           try {
             sessionStorage.setItem(this.key, message.token);
+            stored = true;
           } catch {}
           try {
             localStorage.setItem(this.key, message.token);
-          } catch {
+            stored = true;
+          } catch {}
+          if (!stored) {
             this.onResult({
               ok: false,
               message:
                 'Session storage is unavailable. Rejoining after a reload will create a new survivor.',
             });
           }
-          this.applySnapshot(snapshot);
           welcomed = true;
           clearTimeout(timeout);
           this.reconnectAttempts = 0;
           this.status = 'Connected · authoritative world';
           ready?.();
-        } else if (message.type === 'snapshot' && welcomed)
-          this.applySnapshot(snapshotSchema.parse(message.snapshot));
-        else if (message.type === 'result' && typeof message.result?.message === 'string')
-          this.onResult(message.result);
-        else if (message.type === 'events' && Array.isArray(message.events))
-          this.onEvents(
-            message.events
-              .filter(
-                (e) =>
-                  e.playerId === this.playerId &&
-                  ['gather', 'craft', 'build', 'damage', 'death', 'consume', 'loot'].includes(
-                    e.type,
-                  ) &&
-                  typeof e.message === 'string',
-              )
-              .slice(0, 30),
-          );
-        else if (message.type === 'pong') this.ping = Math.round(performance.now() - message.at);
+        } else if (message.type === 'snapshot') {
+          if (
+            message.snapshot.self.id !== this.playerId ||
+            message.snapshot.seed !== this.world.seed
+          )
+            throw new Error('The world or survivor changed without a new welcome.');
+          this.applySnapshot(message.snapshot);
+        } else if (message.type === 'result') this.onResult(message.result);
+        else if (message.type === 'events')
+          this.onEvents(message.events.filter((e) => e.playerId === this.playerId).slice(0, 30));
+        else if (message.type === 'pong')
+          this.ping = Math.max(0, Math.round(performance.now() - message.at));
         else if (message.type === 'error') {
-          if (!welcomed && fail) {
+          if (!welcomed) {
             this.closed = true;
-            fail(new Error(message.message));
+            this.status = message.message;
+            clearTimeout(timeout);
+            fail?.(new Error(message.message));
             socket.close();
           }
-          this.onResult({ ok: false, message: String(message.message) });
+          this.onResult({ ok: false, message: message.message });
         }
+        this.lastMessage = performance.now();
       } catch {
         this.status = 'Incompatible server data';
         this.closed = true;
@@ -235,8 +211,8 @@ export class RemoteSession implements Session {
     };
     socket.onclose = (event) => {
       clearTimeout(timeout);
+      if (!current()) return;
       this.pendingMove = undefined;
-      if (this.closed) return;
       if (!welcomed && fail) {
         this.closed = true;
         fail(new Error('Could not connect to the world server.'));
@@ -287,13 +263,23 @@ export class RemoteSession implements Session {
 
   command(command: Command): void {
     if (command.type === 'move') {
+      if (
+        this.closed ||
+        this.socket?.readyState !== WebSocket.OPEN ||
+        !this.status.startsWith('Connected')
+      )
+        return;
       this.pendingMove = {
         ...command,
         input: { ...command.input, jump: command.input.jump || !!this.pendingMove?.input.jump },
       };
       return;
     }
-    if (this.socket?.readyState !== WebSocket.OPEN || !this.status.startsWith('Connected')) {
+    if (
+      this.closed ||
+      this.socket?.readyState !== WebSocket.OPEN ||
+      !this.status.startsWith('Connected')
+    ) {
       this.onResult({ ok: false, message: 'Reconnect before taking an action.' });
       return;
     }
@@ -313,7 +299,12 @@ export class RemoteSession implements Session {
   update(dt: number): void {
     this.sinceMove += dt;
     this.sincePing += dt;
-    if (this.socket?.readyState !== WebSocket.OPEN || !this.status.startsWith('Connected')) return;
+    if (
+      this.closed ||
+      this.socket?.readyState !== WebSocket.OPEN ||
+      !this.status.startsWith('Connected')
+    )
+      return;
     if (this.pendingMove && this.sinceMove >= 1 / BALANCE.tickRate) {
       this.flushMove();
     }

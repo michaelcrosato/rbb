@@ -50,7 +50,8 @@ export default defineConfig({
     {
       command: 'npm exec tsx -- tests/e2e/server-fixture.ts',
       url: 'http://127.0.0.1:8788/health',
-      reuseExistingServer: !process.env.CI,
+      // Never run tests against a pre-existing world with potentially persistent progress.
+      reuseExistingServer: false,
       timeout: 30000,
     },
   ],

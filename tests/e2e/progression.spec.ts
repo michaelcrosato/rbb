@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { aimAt, diagnostics, startSolo } from './helpers';
 import { walkTo, gather } from './helpers';
 import {
@@ -6,7 +6,6 @@ import {
   grantMaterials,
   importExpedition,
   inspectPiece,
-  observeProgressionErrors,
   placePiece,
   travel,
 } from './progression-helpers';
@@ -29,7 +28,6 @@ test.use({
 test('a ranged shot uses equipped ammunition, damages distant wildlife and leaves collectible hides', async ({
   page,
 }, testInfo) => {
-  const errors = observeProgressionErrors(page);
   await startSolo(page, 'mobile', 'keyboard');
   const world = generateWorld('quiet-frontier'),
     state = createState(world),
@@ -75,13 +73,11 @@ test('a ranged shot uses equipped ammunition, damages distant wildlife and leave
   await page.getByRole('button', { name: 'Take all that fits', exact: false }).press('Enter');
   await expect.poll(async () => (await diagnostics(page)).player.inventory.leather).toBe(3);
   expect((await diagnostics(page)).bags).toEqual([]);
-  expect(errors).toEqual([]);
 });
 
 test('landmark maps lead to persistent shared salvage and rich quarry veins', async ({
   page,
 }, testInfo) => {
-  const errors = observeProgressionErrors(page);
   await startSolo(page, 'mobile', 'keyboard');
   await page.keyboard.press('KeyM');
   await expect(page.locator('.site-card')).toHaveCount(6);
@@ -104,6 +100,7 @@ test('landmark maps lead to persistent shared salvage and rich quarry veins', as
     .toBe(0);
   await page.reload();
   await page.getByRole('button', { name: 'Continue expedition' }).press('Enter');
+  await expect(page.locator('#hud')).toBeVisible();
   expect((await diagnostics(page)).siteStates[site.id].inventory).toEqual({});
   const quarry = (await diagnostics(page)).sites.find((s) => s.kind === 'ironQuarry')!;
   await travel(page, quarry.x, quarry.z + 3);
@@ -122,14 +119,13 @@ test('landmark maps lead to persistent shared salvage and rich quarry veins', as
   await gather(page, ore.id, 1);
   expect((await diagnostics(page)).player.inventory.ironOre).toBe(20);
   await page.screenshot({ path: testInfo.outputPath('iron-quarry.png') });
-  expect(errors).toEqual([]);
 });
 
 test('a workshop turns ore into equipment, firearms and reinforced shelter with working doors and storage', async ({
   page,
 }, testInfo) => {
   test.setTimeout(180000);
-  const errors = observeProgressionErrors(page);
+
   await startSolo(page, 'mobile', 'keyboard');
   await grantMaterials(page, {
     wood: 200,
@@ -221,18 +217,17 @@ test('a workshop turns ore into equipment, firearms and reinforced shelter with 
   await page.screenshot({ path: testInfo.outputPath('reinforced-structure.png') });
   await page.reload();
   await page.getByRole('button', { name: 'Continue expedition' }).press('Enter');
+  await expect(page.locator('#hud')).toBeVisible();
   const restored = await diagnostics(page);
   expect(restored.player.worn).toEqual({ armor: 'armor', backpack: 'backpack' });
   expect(restored.player.quickSlots[0]).toBe('scrapPistol');
   expect(restored.buildings.find((b) => b.id === frame.id)?.grade).toBe('metal');
   expect(restored.buildings.find((b) => b.id === chest.id)?.inventory.wood).toBe(15);
-  expect(errors).toEqual([]);
 });
 
 test('players build a stairwell, climb onto an upper floor and roof a second storey', async ({
   page,
 }, testInfo) => {
-  const errors = observeProgressionErrors(page);
   await startSolo(page, 'mobile', 'keyboard');
   await grantMaterials(page, { wood: 140, stone: 20, fiber: 40 });
   await walkTo(page, 0, 95, 0.3);
@@ -257,15 +252,15 @@ test('players build a stairwell, climb onto an upper floor and roof a second sto
   await page.screenshot({ path: testInfo.outputPath('upper-storey.png') });
   await page.reload();
   await page.getByRole('button', { name: 'Continue expedition' }).press('Enter');
+  await expect(page.locator('#hud')).toBeVisible();
   expect((await diagnostics(page)).buildings.find((b) => b.id === roof.id)?.support).toBe(
     upperWall.id,
   );
   expect((await diagnostics(page)).player.position.y).toBeCloseTo(landing.y, 1);
-  expect(errors).toEqual([]);
 });
 
 test('ordinary co-op survivors pass supplies through the real pack and ground-loot controls', async ({
-  browser,
+  newContext,
 }, testInfo) => {
   const dir = await mkdtemp(join(tmpdir(), 'rbb-progression-browser-'));
   const server = await startWorldServer({
@@ -276,11 +271,11 @@ test('ordinary co-op survivors pass supplies through the real pack and ground-lo
     log: () => {},
   });
   const contexts = await Promise.all([
-    browser.newContext({ viewport: { width: 1024, height: 640 }, deviceScaleFactor: 0.5 }),
-    browser.newContext({ viewport: { width: 1024, height: 640 }, deviceScaleFactor: 0.5 }),
+    newContext({ viewport: { width: 1024, height: 640 }, deviceScaleFactor: 0.5 }),
+    newContext({ viewport: { width: 1024, height: 640 }, deviceScaleFactor: 0.5 }),
   ]);
   const [a, b] = await Promise.all(contexts.map((context) => context.newPage()));
-  const errors = [observeProgressionErrors(a), observeProgressionErrors(b)];
+
   try {
     for (const page of [a, b]) {
       await page.goto('/');
@@ -310,7 +305,6 @@ test('ordinary co-op survivors pass supplies through the real pack and ground-lo
     expect((await diagnostics(a)).sandbox).toBe(false);
     expect((await diagnostics(b)).devAllowed).toBe(false);
     await b.screenshot({ path: testInfo.outputPath('cooperative-transfer.png') });
-    expect(errors.flat()).toEqual([]);
   } finally {
     await Promise.all(contexts.map((context) => context.close()));
     await server.close();
@@ -321,12 +315,6 @@ test('ordinary co-op survivors pass supplies through the real pack and ground-lo
 test('inventory controls split a ground stack, preserve it on reload, and collect selected quantities', async ({
   page,
 }, testInfo) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => {
-    if (message.type() === 'error' || /GL_INVALID|WebGL:/.test(message.text()))
-      errors.push(message.text());
-  });
   await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
   await startSolo(page, 'mobile', 'keyboard');
   await page.clock.pauseAt(new Date('2026-01-01T01:00:00Z'));
@@ -346,6 +334,7 @@ test('inventory controls split a ground stack, preserve it on reload, and collec
   await expect.poll(async () => (await diagnostics(page)).bags[0]?.inventory.berries).toBe(2);
   await page.reload();
   await page.getByRole('button', { name: 'Continue expedition', exact: true }).press('Enter');
+  await expect(page.locator('#hud')).toBeVisible();
   const bag = (await diagnostics(page)).bags[0];
   expect(bag.inventory.berries).toBe(2);
   await aimAt(page, bag.x, bag.y + 0.3, bag.z);
@@ -363,5 +352,4 @@ test('inventory controls split a ground stack, preserve it on reload, and collec
   await expect.poll(async () => (await diagnostics(page)).player.inventory.berries).toBe(3);
   await expect.poll(async () => (await diagnostics(page)).bags.length).toBe(0);
   await expect(page.getByRole('heading', { name: 'Supplies moved.', exact: true })).toBeVisible();
-  expect(errors).toEqual([]);
 });

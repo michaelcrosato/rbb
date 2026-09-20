@@ -13,7 +13,7 @@ import {
 } from './content';
 import type { MilestoneId } from './content';
 import { carryCapacity, inventoryWeight } from './inventory';
-import { moveSchema } from './protocol';
+import { moveSchema } from './movement';
 import { createBuilding, idleInput } from './state';
 import type { GameState } from './state';
 import { WORLD_HALF, WORLD_VERSION, generateWorld } from './world';

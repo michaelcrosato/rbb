@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { aimAt, diagnostics, gather, startSolo, walkTo } from './helpers';
 import type { Diagnostics } from './helpers';
 import { startWorldServer } from '../../server/app';
@@ -16,8 +16,6 @@ test.use({
 test('survivor gathers, crafts, builds, exports and resumes a saved expedition', async ({
   page,
 }, testInfo) => {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
   // Keep long interaction checks responsive on runners without a GPU.
   await startSolo(page, 'mobile');
   await page.screenshot({ path: testInfo.outputPath('first-footprints.png') });
@@ -51,19 +49,17 @@ test('survivor gathers, crafts, builds, exports and resumes a saved expedition',
   const savedInventory = d.player.inventory;
   await page.reload();
   await page.getByRole('button', { name: 'Continue expedition' }).click();
+  await expect(page.locator('#hud')).toBeVisible();
   await expect.poll(async () => (await diagnostics(page)).buildings.length).toBe(1);
   expect((await diagnostics(page)).player.inventory).toEqual(savedInventory);
   await page.keyboard.press('KeyM');
   await expect(page.locator('#island-map')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('island-map.png') });
-  expect(errors).toEqual([]);
 });
 
 test('menu, settings, pause, movement and jump work without browser errors', async ({
   page,
 }, testInfo) => {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/');
   await page.screenshot({ path: testInfo.outputPath('main-menu.png') });
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
@@ -73,6 +69,7 @@ test('menu, settings, pause, movement and jump work without browser errors', asy
   await page.locator('#show-stats').check();
   await page.getByRole('button', { name: 'Apply settings' }).click();
   await page.getByRole('button', { name: 'Enter the frontier' }).click();
+  await expect(page.locator('#hud')).toBeVisible();
   await page.keyboard.down('KeyS');
   try {
     await expect.poll(async () => (await diagnostics(page)).player.position.z).toBeGreaterThan(87);
@@ -92,7 +89,6 @@ test('menu, settings, pause, movement and jump work without browser errors', asy
   expect((await diagnostics(page)).tick).toBe(tick);
   await page.getByRole('button', { name: 'Return to the wild' }).click();
   await expect.poll(async () => (await diagnostics(page)).tick).toBeGreaterThan(tick);
-  expect(errors).toEqual([]);
 });
 
 test('online survivor automatically reconnects after a world process restart', async ({ page }) => {
@@ -134,9 +130,15 @@ test('a graphics-context interruption pauses solo play and reload restores the s
   page,
 }) => {
   await startSolo(page);
+  const startZ = (await diagnostics(page)).player.position.z;
   await page.keyboard.down('KeyS');
-  await page.waitForTimeout(400);
-  await page.keyboard.up('KeyS');
+  try {
+    await expect
+      .poll(async () => (await diagnostics(page)).player.position.z)
+      .toBeGreaterThan(startZ + 0.5);
+  } finally {
+    await page.keyboard.up('KeyS');
+  }
   await page.evaluate(() =>
     document
       .querySelector('canvas')!
@@ -150,17 +152,48 @@ test('a graphics-context interruption pauses solo play and reload restores the s
   expect((await diagnostics(page)).tick).toBe(before.tick);
   await page.reload();
   await page.getByRole('button', { name: 'Continue expedition' }).click();
+  await expect(page.locator('#hud')).toBeVisible();
   expect((await diagnostics(page)).player.position.z).toBeCloseTo(before.player.position.z, 2);
 });
 
+test('solo tabs protect the active save and load the latest expedition after ownership is released', async ({
+  page,
+  context,
+}, testInfo) => {
+  await startSolo(page, 'mobile', 'keyboard');
+  await gather(page, 'starter-fiber', 1);
+  await page.keyboard.press('Escape');
+  const second = await context.newPage();
+  await second.goto('/');
+  await second.getByRole('button', { name: 'Continue expedition' }).press('Enter');
+  await expect(
+    second.getByText('This solo expedition is open in another tab.', { exact: false }),
+  ).toBeVisible();
+  expect((await diagnostics(second)).mode).toBeUndefined();
+  await second.screenshot({ path: testInfo.outputPath('solo-tab-protection.png') });
+  // The menu in the second tab predates this progress. Continuing must read fresh storage.
+  await page.bringToFront();
+  await page.getByRole('button', { name: 'Return to the wild' }).press('Enter');
+  await gather(page, 'starter-tree', 1);
+  await page.keyboard.press('Escape');
+  const inventory = (await diagnostics(page)).player.inventory;
+  await page.getByRole('button', { name: 'Save & return to menu', exact: true }).press('Enter');
+  await second.bringToFront();
+  await second.getByRole('button', { name: 'Continue expedition' }).press('Enter');
+  await expect.poll(async () => (await diagnostics(second)).mode).toBe('solo');
+  expect((await diagnostics(second)).player.inventory).toEqual(inventory);
+  await second.close();
+  await page.bringToFront();
+  await page.getByRole('button', { name: 'Continue expedition' }).press('Enter');
+  await expect.poll(async () => (await diagnostics(page)).mode).toBe('solo');
+  expect((await diagnostics(page)).player.inventory).toEqual(inventory);
+});
+
 test('two browsers join a persistent authoritative world and resume a survivor', async ({
-  browser,
+  newContext,
 }, testInfo) => {
   const contextOptions = { viewport: { width: 1024, height: 640 }, deviceScaleFactor: 0.5 };
-  const contexts = await Promise.all([
-    browser.newContext(contextOptions),
-    browser.newContext(contextOptions),
-  ]);
+  const contexts = await Promise.all([newContext(contextOptions), newContext(contextOptions)]);
   const [a, b] = await Promise.all(contexts.map((c) => c.newPage()));
   try {
     for (const page of [a, b]) {

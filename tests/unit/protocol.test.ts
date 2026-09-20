@@ -1,12 +1,60 @@
 import { describe, expect, it } from 'vitest';
 import pkg from '../../package.json' with { type: 'json' };
 import { GET } from '../../api/health';
-import { clientMessageSchema, PROTOCOL_VERSION, snapshotFor } from '../../src/shared/protocol';
+import {
+  clientMessageSchema,
+  PROTOCOL_VERSION,
+  serverMessageSchema,
+  snapshotFor,
+} from '../../src/shared/protocol';
 import { Simulation } from '../../src/shared/simulation';
 import { createState } from '../../src/shared/state';
 import { generateWorld, WORLD_HALF } from '../../src/shared/world';
 
 describe('wire protocol', () => {
+  it('validates server envelopes, survivor identity, terrain baselines and private fields', () => {
+    const world = generateWorld('wire-validation');
+    const sim = new Simulation(world, createState(world));
+    sim.addPlayer('a', 'A');
+    sim.addPlayer('b', 'B');
+    const welcome = {
+      type: 'welcome',
+      protocol: PROTOCOL_VERSION,
+      playerId: 'a',
+      token: 'a'.repeat(64),
+      snapshot: snapshotFor(sim.state, 'a', false, -1, world),
+    };
+    expect(serverMessageSchema.safeParse(welcome).success).toBe(true);
+    for (const invalid of [
+      { ...welcome, protocol: 1 },
+      { ...welcome, playerId: 'b' },
+      { ...welcome, token: null },
+      { ...welcome, snapshot: { ...welcome.snapshot, terrain: undefined } },
+      {
+        ...welcome,
+        snapshot: {
+          ...welcome.snapshot,
+          players: [welcome.snapshot.players[0], welcome.snapshot.players[0]],
+        },
+      },
+      {
+        ...welcome,
+        snapshot: {
+          ...welcome.snapshot,
+          players: [{ ...welcome.snapshot.players[0], inventory: { wood: 1 } }],
+        },
+      },
+      { type: 'result', seq: 1, result: { ok: 'true', message: 'bad' } },
+      { type: 'events', events: [null] },
+      {
+        type: 'events',
+        events: Array.from({ length: 257 }, () => ({ type: 'loot', playerId: 'a', message: '' })),
+      },
+      { type: 'pong', at: null },
+      { type: 'error', message: 'x'.repeat(2049) },
+    ])
+      expect(serverMessageSchema.safeParse(invalid).success).toBe(false);
+  });
   it('rejects old protocol versions, unknown fields, unsafe names and out-of-world targets', () => {
     for (const value of [
       { type: 'hello', protocol: 1, name: 'Tester' },

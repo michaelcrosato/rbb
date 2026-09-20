@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
 import { startSolo, diagnostics } from './helpers';
 import { ADVANCED_FEATURES } from '../../src/client/render/settings';
@@ -23,15 +23,7 @@ test('advanced rendering composes, resets history and preserves Low progression'
   // This journey composes fifteen switches and rebuilds the graph across
   // quality, water, night and world boundaries on a CPU-rendered CI runner.
   test.setTimeout(process.env.CI ? 300000 : 90000);
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => {
-    if (
-      message.type() === 'error' ||
-      /GL_INVALID|WebGL:|cannot be cloned|Feedback loop/.test(message.text())
-    )
-      errors.push(message.text());
-  });
+
   await startSolo(page, 'mobile', 'keyboard');
   const original = await diagnostics(page);
   for (const key of ADVANCED_FEATURES) expect(original.graphics[key]).toBe(false);
@@ -54,6 +46,21 @@ test('advanced rendering composes, resets history and preserves Low progression'
   for (const key of ADVANCED_FEATURES) expect(enabled.effectiveGraphics[key]).toBe(true);
   expect(enabled.pipeline.sharedBuffer).toBe(true);
   expect(enabled.pipeline.passes).toContain('temporal resolve');
+  await page.locator('[data-graphics="exposure"]').fill('1.3');
+  await page.locator('[data-graphics="saturation"]').fill('0.9');
+  await page.getByText('Advanced rendering · off by default', { exact: true }).press('Enter');
+  await page.locator('[data-graphics="reflectionStrength"]').fill('0.4');
+  await page.locator('[data-graphics="fogStrength"]').fill('0.8');
+  await apply(page);
+  const adjusted = await diagnostics(page);
+  expect(adjusted.pipeline.graphRevision).toBe(enabled.pipeline.graphRevision);
+  expect(adjusted.pipeline.estimatedTargetMiB).toBe(enabled.pipeline.estimatedTargetMiB);
+  expect(adjusted.effectiveGraphics).toMatchObject({
+    exposure: 1.3,
+    saturation: 0.9,
+    reflectionStrength: 0.4,
+    fogStrength: 0.8,
+  });
   await page.getByRole('button', { name: 'Close panel' }).press('Enter');
   await page.screenshot({ path: testInfo.outputPath('advanced-stack.png') });
   const z = (await diagnostics(page)).player.position.z;
@@ -112,22 +119,13 @@ test('advanced rendering composes, resets history and preserves Low progression'
   await page.keyboard.press('Escape');
   await page.reload();
   await page.getByRole('button', { name: 'Continue expedition' }).press('Enter');
+  await expect(page.locator('#hud')).toBeVisible();
   expect((await diagnostics(page)).pipeline.sharedBuffer).toBe(false);
-  expect(errors).toEqual([]);
 });
 
 test('distant GPU buffers reload when the survivor returns to their region', async ({
   page,
 }, testInfo) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => {
-    if (
-      message.type() === 'error' ||
-      /GL_INVALID|WebGL:|cannot be cloned|Feedback loop/.test(message.text())
-    )
-      errors.push(message.text());
-  });
   await startSolo(page, 'mobile', 'keyboard');
   await rendering(page);
   await page.locator('[data-graphics="chunkStreaming"]').press('Space');
@@ -151,21 +149,11 @@ test('distant GPU buffers reload when the survivor returns to their region', asy
   await page.getByRole('button', { name: 'Return to Haven', exact: true }).press('Enter');
   await page.getByRole('button', { name: 'Close panel' }).press('Enter');
   await page.screenshot({ path: testInfo.outputPath('streamed-return.png') });
-  expect(errors).toEqual([]);
 });
 
 test('shared buffer views and repeated temporal/volume toggles release render targets', async ({
   page,
 }, testInfo) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => {
-    if (
-      message.type() === 'error' ||
-      /GL_INVALID|WebGL:|cannot be cloned|Feedback loop/.test(message.text())
-    )
-      errors.push(message.text());
-  });
   await startSolo(page, 'mobile', 'keyboard');
   await rendering(page);
   await expect.poll(async () => (await diagnostics(page)).renderer.textures).toBeGreaterThan(0);
@@ -190,21 +178,11 @@ test('shared buffer views and repeated temporal/volume toggles release render ta
     await apply(page);
     await expect.poll(async () => (await diagnostics(page)).renderer.textures).toBe(baseline);
   }
-  expect(errors).toEqual([]);
 });
 
 test('graphics context restoration rebuilds the pipeline and keeps the expedition', async ({
   page,
 }, testInfo) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => {
-    if (
-      message.type() === 'error' ||
-      /GL_INVALID|WebGL:|cannot be cloned|Feedback loop/.test(message.text())
-    )
-      errors.push(message.text());
-  });
   await startSolo(page, 'mobile', 'keyboard');
   const before = await diagnostics(page);
   await rendering(page);
@@ -253,22 +231,16 @@ test('graphics context restoration rebuilds the pipeline and keeps the expeditio
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Save & return to menu', exact: true }).press('Enter');
   await page.getByRole('button', { name: 'Continue expedition', exact: true }).press('Enter');
+  await expect(page.locator('#hud')).toBeVisible();
   await expect
     .poll(async () => (await diagnostics(page)).pipeline.probes?.ready)
     .toBeGreaterThan(0);
   expect((await diagnostics(page)).player.inventory).toEqual(before.player.inventory);
-  expect(errors).toEqual([]);
 });
 
 test('normal multiplayer servers permit local graphics controls without sandbox mutations', async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => {
-    if (message.type() === 'error' || /GL_INVALID|WebGL:|cannot be cloned/.test(message.text()))
-      errors.push(message.text());
-  });
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).press('Enter');
   await page.locator('#quality').selectOption('mobile');
@@ -301,5 +273,4 @@ test('normal multiplayer servers permit local graphics controls without sandbox 
   expect(after.player.milestones).toEqual(before.player.milestones);
   await page.getByRole('button', { name: 'Close panel', exact: true }).press('Enter');
   await expect.poll(async () => (await diagnostics(page)).tick).toBeGreaterThan(after.tick);
-  expect(errors).toEqual([]);
 });
