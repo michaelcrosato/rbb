@@ -21,11 +21,17 @@ export function habitatValid(
   below: number = TERRAIN.maxY,
 ): boolean {
   if (Math.abs(x) > 312 || Math.abs(z) > 312) return false;
-  const height = (x: number, z: number) =>
-    state ? terrainFloor(state.terrain, world, x, z, below) : terrainHeight(x, z, world.hash);
-  const h = height(x, z);
+  const height = (x: number, z: number, limit: number) =>
+    state ? terrainFloor(state.terrain, world, x, z, limit) : terrainHeight(x, z, world.hash);
+  const h = height(x, z, below);
   if (WILDLIFE[species].habitat === 'sea') return h < (species === 'dolphin' ? -4 : -2);
-  return h > 1.5 && Math.abs(height(x + 1, z) - h) < 1.2 && Math.abs(height(x, z + 1) - h) < 1.2;
+  // Slope neighbours are measured from this floor, not the animal's step limit; otherwise a
+  // neighbour just above that limit reads as no floor and walkable slopes reject movement.
+  return (
+    h > 1.5 &&
+    Math.abs(height(x + 1, z, h + 1.2) - h) < 1.2 &&
+    Math.abs(height(x, z + 1, h + 1.2) - h) < 1.2
+  );
 }
 export function animalAt(
   world: WorldDefinition,
@@ -215,7 +221,9 @@ export function stepWildlife(
               RESOURCE_TYPES[r.kind].radius > 0 &&
               (!state.resources[r.id] || state.resources[r.id].health > 0) &&
               Math.abs(r.y - animal.y) < 2 &&
-              distance2(r, { x, z }) < RESOURCE_TYPES[r.kind].radius * r.scale + def.radius * 0.5,
+              distance2(r, { x, z }) < RESOURCE_TYPES[r.kind].radius * r.scale + def.radius * 0.5 &&
+              // An animal seeded or respawned inside a trunk may still step out of it.
+              distance2(r, { x, z }) < distance2(r, animal),
           )
         )
           continue;

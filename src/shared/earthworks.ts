@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { BALANCE, RESOURCE_TYPES, TOOLS } from './content';
+import type { Inventory } from './content';
 import { carryCapacity, transact } from './inventory';
 import { lineOfSight, groundHeight, blocked } from './physics';
 import type { GameState, PlayerState, Result } from './state';
@@ -8,6 +9,7 @@ import { terrainHeight } from './world';
 import {
   brushSchema,
   commitTerrainEdit,
+  indexTerrainPreview,
   planTerrainEdit,
   TERRAIN,
   terrainBodyClear,
@@ -60,6 +62,7 @@ export function previewTerrain(state: GameState, patch: TerrainPatch): GameState
     if (value === null) delete next.samples[key];
     else next.samples[key] = value;
   }
+  indexTerrainPreview(state.terrain, next, patch);
   return next;
 }
 
@@ -76,6 +79,24 @@ export function editTerrain(
   const { patch, mass } = planTerrainEdit(state.terrain, world, parsed.data);
   if (!Object.keys(patch).length)
     return { ok: false, message: 'This brush would not change the terrain.' };
+  // Dirt depends only on the planned volume: settle affordability on a copy of the pack
+  // before previewing the edited terrain, which costs time proportional to existing edits.
+  const units = mass * BALANCE.dirtPerVolume;
+  const cost = Math.max(0, Math.ceil(-units - 1e-7));
+  const gain = Math.max(0, Math.floor(units + 1e-7));
+  const settle = (inventory: Inventory) =>
+    transact(inventory, cost ? { dirt: cost } : {}, gain ? { dirt: gain } : {}, carryCapacity(p));
+  if (!developer) {
+    const trial = settle({ ...p.inventory });
+    if (!trial.ok)
+      return {
+        ...trial,
+        message:
+          cost && (p.inventory.dirt ?? 0) < cost
+            ? `Need ${cost} dirt. Dig ground to collect fill material.`
+            : trial.message,
+      };
+  }
   const next = previewTerrain(state, patch);
   if (Object.keys(next.samples).length > TERRAIN.maxSamples)
     return {
@@ -171,23 +192,8 @@ export function editTerrain(
       displaced.push(r.id);
   }
   if (!developer) {
-    const units = mass * BALANCE.dirtPerVolume;
-    const cost = Math.max(0, Math.ceil(-units - 1e-7));
-    const gain = Math.max(0, Math.floor(units + 1e-7));
-    const transaction = transact(
-      p.inventory,
-      cost ? { dirt: cost } : {},
-      gain ? { dirt: gain } : {},
-      carryCapacity(p),
-    );
-    if (!transaction.ok)
-      return {
-        ...transaction,
-        message:
-          cost && (p.inventory.dirt ?? 0) < cost
-            ? `Need ${cost} dirt. Dig ground to collect fill material.`
-            : transaction.message,
-      };
+    const transaction = settle(p.inventory);
+    if (!transaction.ok) return transaction;
     p.stamina = Math.max(0, p.stamina - BALANCE.terrainStamina);
     p.cooldown = BALANCE.terrainCooldown;
   }

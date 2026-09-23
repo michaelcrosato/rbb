@@ -1,6 +1,23 @@
 # Alpha verification ledger
 
-Repository audit, frontier progression and editable terrain verification recorded on 2026-09-19 Pacific. This ledger distinguishes implementation, automated evidence, and physical-device QA. The [public CI history](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml) records checks for each revision. Earlier release evidence is retained below as a historical baseline.
+Repository audits, frontier progression and editable terrain verification recorded between 2026-09-19 and 2026-09-22 Pacific. This ledger distinguishes implementation, automated evidence, and physical-device QA. The [public CI history](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml) records checks for each revision. Earlier release evidence is retained below as a historical baseline.
+
+## Repository audit · 2026-09-22
+
+The audit read the shared simulation and server directly and reviewed rendering, the client shell/UI, world geometry and tooling/CI in parallel. It began from clean `main` at `18ef846` (0.3.1): **151 unit/integration tests**, types, lint, both builds and all **34 browser scenarios** passed; the last eight CI runs were green; production `/api/health` reported 0.3.1 / protocol 4; `npm audit` reported zero vulnerabilities; the documented item, recipe, building and tuning counts match the registry.
+
+Confirmed fixes, each reproduced before the change. Timings are uncontended Windows / Node 24.20.0 measurements; runs taken while browser tests were active read three to four times higher and are not quoted.
+
+- **Joining edited worlds.** A world with 50,000 or 160,000 changed terrain samples closed the joining survivor as a slow client **12 of 12 times** on localhost: `ws` counts a message's uncompressed size as buffered while compressing it, so the next 10 Hz snapshot found the welcome's baseline over the 512 KB guard. 20,000 samples still joined. Backlogged sockets now skip snapshots and close after ten seconds of sustained backlog, with a 16 MB hard bound. **36 of 36** joins at 20k/50k/160k stayed connected afterwards. A real-server regression seeds 50,000 samples.
+- **Rejoining after a network switch.** When the path to a tab died, resuming was refused as "already connected in another tab" for 25–35 seconds until the heartbeat dropped the old socket, and the client stopped retrying and suggested a new survivor, which would strand the original. A resume now replaces that survivor's connection after 15 seconds of silence (live tabs answer heartbeats even when hidden), token resolution precedes the world-full check, and the client retries rejoin rejections within its bounded schedule. Server and fake-socket regressions fail against the previous code.
+- **Terrain command cost.** Each edit rebuilt the whole column index for the preview and again after commit. A successful dig plus tick took **11 / 39 / 83 / 165 ms** at 5k / 20k / 40k / 80k samples, and a deposit without dirt took 6–100 ms with no cooldown. They now take **3 / 8 / 16 / 39 ms** and under 1 ms. Previews, commits and network patches extend the index incrementally; a test asserts it equals a full rebuild, including deletions.
+- **Frozen wildlife.** **16 of 504** land animals across 12 seeds, including quiet-frontier's boar1, never moved in 60 seconds: slope probes used the animal's step height, and animals seeded inside a trunk could not leave it. None remain frozen; generated placement is unchanged.
+- **Server saves** re-validated the snapshot they had just written: **66 / 161 / 565 ms** per save at 20k / 50k / 160k samples, now **41 / 94 / 318 ms**.
+- Menus suppressed Space and arrow keys, so Space could not press a focused button. The container health check ignored `PORT`. The 16 MB save test passed on invalid JSON regardless of the bound. Action-burst and message-flood limits had no integration coverage.
+
+Final local verification: `npm run check` passes **157 unit/integration tests**, types, lint and both builds; formatting passes; all **34 desktop/touch browser scenarios** pass in 5.0 minutes with zero retries. The container health-check command was run through `sh -c` against a world server on a non-default port; the Docker daemon remains unavailable locally, so image build and restart stay a CI gate.
+
+Verified findings that were not changed are listed in the [roadmap](roadmap.md#remaining-engineering-follow-ups): persistence validation cost at high terrain counts, terrain-protection sampling, probe and other presentation issues, client UX gaps, and delivery gates (no branch protection; Vercel deploys before CI completes). No physical RTX 3070 Ti/S25 or WAN evidence is claimed.
 
 ## Repository audit · 2026-09-19
 
@@ -165,7 +182,7 @@ Human device QA should record browser version, exact GPU/phone, viewport, preset
 - Cooperative shared world; no PvP, verified accounts, moderation, storage permissions, tool wear or technology tree yet. Owners can dismantle empty unsupported pieces; doors, roofs, shared chests and structure damage/repair are implemented.
 - Remote snapshots are 10 Hz. Camera, wildlife and remote survivor motion are smoothed at render rate. Client prediction and buffered snapshot interpolation remain future work; Internet latency is visible in movement.
 - Weather is visual/environmental; temperature, slippery surfaces and weather-driven needs are future work. Ocean waves do not displace gameplay physics. Advanced rendering limitations and deferred techniques are listed in the [feature matrix](rendering-and-world.md).
-- Server limit: 4 simultaneous players, 512 registered survivors, 512 building pieces. This is a single-process SQLite deployment. Reconnects need a free player slot.
+- Server limit: 4 simultaneous players, 512 registered survivors, 512 building pieces. This is a single-process SQLite deployment. Reconnects need a free player slot; a survivor's own connection that has been silent for 15 seconds no longer holds one.
 - The world is a finite island, with chunk culling and optional GPU-buffer residency rather than unbounded world streaming.
 - Saves are origin-local, with one active solo slot and a previous healthy backup. HTTPS/localhost solo sessions use Web Locks to prevent concurrent tabs; return to the menu or close the active tab to release ownership. Non-secure LAN origins lack Web Locks: changed-slot checks stop stale writes but cannot guarantee atomic exclusion for simultaneous writes. Use one solo tab there. Export before changing browser/device or clearing site data.
 - The local Docker daemon is not running; the image build/restart verification was executed successfully in GitHub CI.

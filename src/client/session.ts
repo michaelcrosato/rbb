@@ -86,6 +86,7 @@ export class RemoteSession implements Session {
   private seq = 0;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private reconnectAttempts = 0;
+  private rejoinError?: string;
   private closed = false;
   private sincePing = 0;
   private lastMessage = performance.now();
@@ -173,6 +174,7 @@ export class RemoteSession implements Session {
           welcomed = true;
           clearTimeout(timeout);
           this.reconnectAttempts = 0;
+          this.rejoinError = undefined;
           this.status = 'Connected · authoritative world';
           ready?.();
         } else if (message.type === 'snapshot') {
@@ -188,6 +190,14 @@ export class RemoteSession implements Session {
         else if (message.type === 'pong')
           this.ping = Math.max(0, Math.round(performance.now() - message.at));
         else if (message.type === 'error') {
+          if (!welcomed && !fail) {
+            // Rejoining after a lost connection: the server may not have noticed the old socket
+            // die yet, or be momentarily full. Keep this survivor and retry within the schedule.
+            this.rejoinError = message.message;
+            clearTimeout(timeout);
+            socket.close();
+            return;
+          }
           if (!welcomed) {
             this.closed = true;
             this.status = message.message;
@@ -218,13 +228,13 @@ export class RemoteSession implements Session {
         fail(new Error('Could not connect to the world server.'));
         return;
       }
-      if (event.code === 1008) {
+      if (event.code === 1008 && welcomed) {
         this.status = 'Could not rejoin · return to menu to join again';
         return;
       }
       this.status = 'Disconnected · reconnecting…';
       if (this.reconnectAttempts >= 6) {
-        this.status = 'Connection lost · return to menu to rejoin';
+        this.status = this.rejoinError ?? 'Connection lost · return to menu to rejoin';
         return;
       }
       const delay = Math.min(1000 * 2 ** this.reconnectAttempts++, 10000);
