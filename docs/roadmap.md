@@ -76,6 +76,16 @@ Player-hosted browser sessions, automatic relays/server discovery, reserved reco
 
 The [QA ledger](qa.md) records verification results and limitations, including non-secure-origin save fallback and the distinction between unit coverage and browser evidence.
 
+## Repository audit · 2026-09-22
+
+- [x] Admit survivors to heavily edited worlds: a welcome's terrain baseline no longer trips the slow-client close; backlogged sockets skip snapshots and only a sustained backlog disconnects.
+- [x] Recover a survivor after a network switch: a resume replaces that survivor's silent connection, and the client keeps retrying rejoin rejections instead of advising a new survivor.
+- [x] Make terrain commands scale with the edit rather than the world: incremental column index for previews, commits and network patches; dirt affordability checked before the preview.
+- [x] Let wildlife roam walkable slopes and step out of seeded trunk overlaps; halve server save cost by not re-validating the snapshot it wrote.
+- [x] Restore Space/arrow keys in menus, honor `PORT` in the container health check, and cover action/message limits and the 16 MB save bound.
+
+[QA](qa.md#repository-audit--2026-09-22) records the measurements and verification.
+
 ## Remaining engineering follow-ups
 
 Verified by reading the code, deferred because each needs browser or hardware evidence before it is clearly worth its risk:
@@ -84,6 +94,15 @@ Verified by reading the code, deferred because each needs browser or hardware ev
 - GTAO still rasterizes its own normal pre-pass although the shared depth/normal buffers exist. Investigate reuse with visual equivalence and GPU measurements before replacing it.
 - `renderer.ts` owns culling tables, collision-debug geometry, actor interpolation, camp lights and auto-quality. Split by ownership, and derive the height-map encoding constants in the water, buffer and fog shaders from `WORLD_HALF`/`WORLD_SIZE`.
 - Non-terrain snapshots remain full state at 10 Hz per client (about 47 KB each with a 400-piece camp). Terrain now uses revision patches. General interest management and entity deltas remain prerequisites for larger worlds or player counts.
+
+Verified by the 2026-09-22 audit and deferred as presentation, UX or larger-scope work:
+
+- Persistence validates the whole terrain on the main thread: about 0.3 s per server save and a similar solo autosave hitch at 160,000 samples (40 ms at 20,000). Terrain previews still copy every sample (about 24 ms at 80,000), which occupancy failures also pay. Consider validating only changed terrain or moving serialization off the tick.
+- Terrain protection samples structure solids on a 3 × 3 grid from the piece's base (`earthworks.ts`, `building.ts`): fills can intrude into walls or slabs and digs beside a foundation can lower its ground by about a metre. A terrain edit also reactivates quarry nodes that save migration disabled, and `terrainBodyClear` never terminates for body heights of 0.08 m or less (no current caller).
+- Indirect-light probes are all cleared on each 40 m recenter and on any world change, so indirect light fades while walking; probe heights ignore terrain edits. Solo environment-change detection compares the live environment object, and 60× sky resets history every online snapshot. Sun/moon shadow maps stay allocated after cascades or shadows are disabled.
+- Smaller presentation issues: a stale selection ring during placement, furnace glow merged away by model compaction, solo wildlife gait scaled for 10 Hz snapshots, and the half-texel ocean height-map offset (fix with the constants above).
+- Client UX: Import replaces the solo slot without the New-expedition confirmation and its one-deep backup is overwritten by the next autosave; a dead survivor who cannot reconnect has no route from the death panel to the menu; ambient audio continues in hidden tabs; quick-slot and dismantle controls reset when any building changes; the storage-unavailable warning fires before the session is attached; the menu's save description is stale after leaving a world; a snapshot missing a landmark stops the frame loop; terrain hints say "Hold E" although only the mouse repeats.
+- Delivery: `main` has no branch protection, and Vercel deploys production before CI finishes, so a failing commit can reach the public client. The container CI job restarts rather than recreates the container, so it does not prove the named volume holds the world. The browser world fixture leaves its temporary database behind on Windows.
 
 ## Subsequent iterations
 
