@@ -138,6 +138,19 @@ describe('wildlife habitats and behavior', () => {
       expect(a.y).toBeGreaterThanOrEqual(terrainHeight(a.x, a.z, world.hash));
     }
   });
+  it('lets every seeded land animal roam from walkable slopes and trunk overlaps', () => {
+    // quiet-frontier's boar1 stands on a walkable slope; seed b seeds rabbit13 inside a rock.
+    for (const seed of ['quiet-frontier', 'b']) {
+      const seeded = generateWorld(seed);
+      const sim = new Simulation(seeded, createState(seeded));
+      const start = new Map(sim.state.animals.map((a) => [a.id, { x: a.x, z: a.z }]));
+      for (let i = 0; i < 1800; i++) sim.tick();
+      for (const a of sim.state.animals.filter((a) => WILDLIFE[a.species].habitat === 'land')) {
+        const from = start.get(a.id)!;
+        expect(Math.hypot(a.x - from.x, a.z - from.z), `${seed} ${a.id}`).toBeGreaterThan(0.05);
+      }
+    }
+  });
   it('prey flee, boars defend territory, invincibility prevents damage and marine spawning needs water', () => {
     const sim = fixture(),
       p = sim.state.players.local;
