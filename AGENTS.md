@@ -11,6 +11,7 @@ RBB is an AI-authored, human-directed survival-game alpha. Keep it easy to exten
 - Keep render objects out of save files. Version and validate saves and network messages.
 - Test gameplay invariants, failure cases, and persistence. Browser tests must exercise real controls and WebGL rendering; test hooks must remain read-only.
 - Run `npm run check` and `npm run test:e2e` for gameplay/infrastructure changes. For visual changes, start the dev server, inspect desktop and mobile screenshots, and check browser errors.
+- Never let local Windows e2e runs engage real pointer lock: Chromium implements it with the global Win32 ClipCursor and traps the owner's real mouse. `tests/e2e/fixtures.ts` refuses the lock on win32 for every context; create contexts only through its fixtures.
 - Record material limitations honestly in `docs/qa.md`. Browser emulation is not physical RTX/S25 performance evidence.
 - Keep `docs/roadmap.md` current; do not describe future features as implemented.
 - Standard delivery procedure: after the relevant local checks pass, commit the completed changes locally, push to GitHub, open or update the pull request, and merge after all GitHub checks pass. This is standing authorization; do not stop at local changes or ask again for routine commit, push or merge approval. Preserve unrelated work, never bypass failing checks, and resolve failures before merging. Verify the resulting deployment and provide the public URL so the owner can test remotely.

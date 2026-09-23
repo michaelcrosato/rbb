@@ -127,10 +127,15 @@ test('player controls excavate, deposit dirt and flatten visible terrain with a 
   const floor = terrainFloor(dug.terrain, world, 0, 82.4);
   expect(floor).toBeLessThan(8);
   await page.screenshot({ path: testInfo.outputPath('player-dug-pit.png') });
-  await aimAt(page, 0, floor, 82.4);
+  // The rim hides the pit floor within reach, so aiming there fills ground beside the survivor
+  // and passes only while their lift stays under 0.65 m. Build the mound on open ground ~4 m
+  // away instead, so neither the fill nor the flatten brush below reaches the survivor.
+  await aimAt(page, 3.5, terrainFloor(dug.terrain, world, 3.5, 84), 84);
   await page.keyboard.press('KeyT');
   await page.getByRole('button', { name: 'Deposit dirt', exact: false }).click();
   await expect.poll(async () => (await diagnostics(page)).player.cooldown).toBe(0);
+  // Choosing a tool clears the aim until the next frame re-casts it.
+  await expect.poll(async () => (await diagnostics(page)).terrainTool.hit !== null).toBe(true);
   const depositTarget = (await diagnostics(page)).terrainTool.hit!.point;
   const beforeDepositHeight = terrainFloor(dug.terrain, world, depositTarget.x, depositTarget.z);
   await page.keyboard.press('KeyE');
@@ -139,7 +144,8 @@ test('player controls excavate, deposit dirt and flatten visible terrain with a 
   expect(filled.player.inventory.dirt).toBeLessThan(dug.player.inventory.dirt!);
   const moundHeight = terrainFloor(filled.terrain, world, depositTarget.x, depositTarget.z);
   expect(moundHeight).toBeGreaterThan(beforeDepositHeight);
-  await aimAt(page, depositTarget.x, moundHeight, depositTarget.z);
+  // The peak is above eye level, so aiming at it only grazes. Aim inside the mound's body.
+  await aimAt(page, depositTarget.x, (depositTarget.y + moundHeight) / 2, depositTarget.z);
   await page.keyboard.press('KeyT');
   await page.locator('#terrain-level').fill('9');
   await page.getByRole('button', { name: 'Flatten ground', exact: false }).click();

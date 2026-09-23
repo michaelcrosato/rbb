@@ -85,6 +85,22 @@ export default ts.config(
     },
   },
   {
+    // Browser contexts come from tests/e2e/fixtures.ts, which monitors errors and refuses
+    // pointer lock on Windows (Chromium's ClipCursor would trap the real mouse).
+    files: ['tests/e2e/**/*.ts'],
+    ignores: ['tests/e2e/fixtures.ts'],
+    rules: {
+      'no-restricted-properties': [
+        'error',
+        ...['newContext', 'newPage'].map((property) => ({
+          object: 'browser',
+          property,
+          message: 'Use the context/page or newContext fixtures from tests/e2e/fixtures.ts.',
+        })),
+      ],
+    },
+  },
+  {
     files: ['server/**/*.ts'],
     rules: {
       'no-restricted-imports': [
