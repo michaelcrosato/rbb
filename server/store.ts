@@ -13,6 +13,9 @@ export class WorldStore {
   readonly db: DatabaseSync;
   recovered = false;
   private initialized: boolean;
+  /** This process loaded or wrote the `current` row and validated it then. Re-parsing a large
+   * edited world on every save would double the main-thread stall; the checksum still guards it. */
+  private currentValid = false;
   constructor(path: string) {
     mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
@@ -37,6 +40,7 @@ export class WorldStore {
     const backup = this.db
       .prepare('SELECT body, checksum FROM snapshots WHERE slot = ?')
       .get('backup') as { body: string; checksum: string } | undefined;
+    this.currentValid = false;
     if (!current && !backup && !this.initialized) return null;
     const parse = (row: { body: string; checksum: string }) => {
       if (checksum(row.body) !== row.checksum) throw new Error('Snapshot checksum mismatch');
@@ -44,7 +48,9 @@ export class WorldStore {
     };
     if (current) {
       try {
-        return parse(current);
+        const state = parse(current);
+        this.currentValid = true;
+        return state;
       } catch {}
     }
     if (backup) {
@@ -68,7 +74,7 @@ export class WorldStore {
         .get('current') as { body: string; checksum: string } | undefined;
       if (current && checksum(current.body) === current.checksum) {
         try {
-          parseState(JSON.parse(current.body));
+          if (!this.currentValid) parseState(JSON.parse(current.body));
           this.db.exec(
             "INSERT OR REPLACE INTO snapshots SELECT 'backup', body, checksum, saved_at FROM snapshots WHERE slot = 'current'",
           );
@@ -81,6 +87,7 @@ export class WorldStore {
         .run('current', body, checksum(body), new Date().toISOString());
       this.db.exec('COMMIT');
       this.initialized = true;
+      this.currentValid = true;
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
