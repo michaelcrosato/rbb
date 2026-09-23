@@ -1,5 +1,10 @@
 import { BALANCE } from '../shared/content';
-import { PROTOCOL_VERSION, serverMessageSchema, snapshotFor } from '../shared/protocol';
+import {
+  commandSchema,
+  PROTOCOL_VERSION,
+  serverMessageSchema,
+  snapshotFor,
+} from '../shared/protocol';
 import type { Command, Snapshot } from '../shared/protocol';
 import { MAX_SAVE_BYTES } from '../shared/save';
 import { applyTerrainUpdate } from '../shared/terrain';
@@ -9,6 +14,15 @@ import type { GameEvent, GameState, Result } from '../shared/state';
 import { generateWorld } from '../shared/world';
 import type { WorldDefinition } from '../shared/world';
 import { normalizeServerUrl } from './multiplayer';
+
+/** The message solo play shows for the same rejected request. */
+function invalidCommandMessage(command: Command): string {
+  if (command.type === 'craft') return 'Choose a valid recipe and batch.';
+  if (command.type === 'terrain') return 'Choose a height between -62 and 126 m.';
+  if (command.type === 'drop' || command.type === 'collect' || command.type === 'storage')
+    return 'Choose a valid item quantity.';
+  return 'That action is not available.';
+}
 
 export interface Session {
   mode: 'solo' | 'online';
@@ -291,6 +305,12 @@ export class RemoteSession implements Session {
       !this.status.startsWith('Connected')
     ) {
       this.onResult({ ok: false, message: 'Reconnect before taking an action.' });
+      return;
+    }
+    // The server closes the socket for good on a malformed command, so a form value it
+    // would reject (a blank or fractional quantity) must fail here, as it does in solo.
+    if (!commandSchema.safeParse(command).success) {
+      this.onResult({ ok: false, message: invalidCommandMessage(command) });
       return;
     }
     this.flushMove();

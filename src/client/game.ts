@@ -16,6 +16,7 @@ import { terrainAim } from '../shared/earthworks';
 import type { Earthwork } from '../shared/earthworks';
 import type { InputAction } from './input';
 import { SaveConflictError, SaveStore } from './persistence';
+import type { LoadResult } from './persistence';
 import { DEFAULT_SETTINGS, WorldRenderer } from './render/renderer';
 import type { RenderSettings, Target } from './render/renderer';
 import { getSnapshot, LocalSession, RemoteSession } from './session';
@@ -75,14 +76,7 @@ export class Game {
       getItem: (key) => localStorage.getItem(key),
       setItem: (key, value) => localStorage.setItem(key, value),
     });
-    const loaded = this.saves.load();
-    this.saved = loaded.save;
-    this.ui.setHasSave(
-      !!this.saved,
-      this.saved
-        ? `Saved expedition · ${this.saved.state.seed} · ${new Date(this.saved.savedAt).toLocaleDateString()}`
-        : loaded.warning,
-    );
+    const loaded = this.refreshSaved();
     try {
       const parsed = settingsSchema.safeParse(
         JSON.parse(localStorage.getItem('rbb.settings.v1') ?? 'null'),
@@ -361,9 +355,10 @@ export class Game {
       return;
     }
     if (action === 'start') {
+      this.refreshSaved();
       if (this.saved) this.openPanel('new');
-      else await this.startNew();
-    } else if (action === 'new-confirmed') await this.startNew();
+      else await this.startNew(false);
+    } else if (action === 'new-confirmed') await this.startNew(true);
     else if (action === 'continue' && this.saved) await this.openSolo();
     else if (action === 'close' || action === 'resume') this.resume();
     else if (
@@ -529,13 +524,13 @@ export class Game {
       this.renderer.showPreview(null, false);
       this.target = null;
       this.releasePointer();
-      const loaded = this.saves.load();
-      this.saved = loaded.save;
-      this.ui.setHasSave(!!this.saved);
+      this.refreshSaved();
     } else if (action === 'export' && this.session?.mode === 'solo')
       this.download(encodeSave(this.session.state, this.session.playerId));
-    else if (action === 'export-existing' && this.saved) this.download(JSON.stringify(this.saved));
-    else if (action === 'import')
+    else if (action === 'export-existing') {
+      this.refreshSaved();
+      if (this.saved) this.download(JSON.stringify(this.saved));
+    } else if (action === 'import')
       this.ui.root.querySelector<HTMLInputElement>('#import-file')!.click();
     else if (action === 'connect') await this.connect();
     else if (action === 'copy-invite' && this.ui.inviteUrl) {
@@ -549,7 +544,21 @@ export class Game {
     } else if (action === 'reload') location.reload();
   }
 
-  private async startNew(): Promise<void> {
+  /** Shows the solo save now in storage. Another tab may have written it since this
+   * menu was drawn, and Start, Continue and Export must act on that version. */
+  private refreshSaved(): LoadResult {
+    const loaded = this.saves.load();
+    this.saved = loaded.save;
+    this.ui.setHasSave(
+      !!this.saved,
+      this.saved
+        ? `Saved expedition · ${this.saved.state.seed} · ${new Date(this.saved.savedAt).toLocaleDateString()}`
+        : loaded.warning,
+    );
+    return loaded;
+  }
+
+  private async startNew(replace: boolean): Promise<void> {
     const result = seedSchema.safeParse(
       (this.ui.root.querySelector('#world-seed') as HTMLInputElement).value,
     );
@@ -560,10 +569,10 @@ export class Game {
       );
       return;
     }
-    await this.openSolo(result.data);
+    await this.openSolo(result.data, replace);
   }
 
-  private async openSolo(seed?: string): Promise<void> {
+  private async openSolo(seed?: string, replace = false): Promise<void> {
     if (this.openingSolo) return;
     this.openingSolo = true;
     try {
@@ -577,6 +586,13 @@ export class Game {
       this.saved = loaded.save;
       if (!seed && !loaded.save)
         throw new Error(loaded.warning ?? 'No saved expedition is available.');
+      if (seed && loaded.save && !replace) {
+        // Another tab saved after this one chose to start fresh. Ask before replacing it.
+        this.saves.release();
+        this.refreshSaved();
+        this.openPanel('new');
+        return;
+      }
       this.saveConflict = false;
       await this.attach(
         seed

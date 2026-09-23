@@ -9,7 +9,7 @@ import {
   weatherValues,
   WEATHER_IDS,
 } from '../../src/shared/environment';
-import { SPECIES_IDS, WILDLIFE } from '../../src/shared/content';
+import { BALANCE, SPECIES_IDS, WILDLIFE } from '../../src/shared/content';
 import { developerSchema } from '../../src/shared/developer';
 import { inventoryWeight } from '../../src/shared/inventory';
 import { parseState, encodeSave, parseSave } from '../../src/shared/save';
@@ -151,6 +151,16 @@ describe('wildlife habitats and behavior', () => {
       }
     }
   });
+  it('lets wolves roam when wildlife aggression is tuned to zero', () => {
+    const sim = fixture();
+    sim.state.tuning.wildlifeAggression = 0;
+    // 16 m from the survivor: outside the 10 m radius at which passive animals flee people.
+    const wolf = animalAt(world, 'wolf', 'wolf', 0, 70);
+    sim.state.animals = [wolf];
+    for (let i = 0; i < 90; i++) sim.tick();
+    expect(wolf.behavior).not.toBe('flee');
+    expect(Math.hypot(wolf.x - 0, wolf.z - 70)).toBeGreaterThan(0.5);
+  });
   it('prey flee, boars defend territory, invincibility prevents damage and marine spawning needs water', () => {
     const sim = fixture(),
       p = sim.state.players.local;
@@ -188,6 +198,20 @@ describe('wildlife habitats and behavior', () => {
     expect(p.position.y).toBeCloseTo(-1.2);
     expect(p.oxygen).toBe(100);
     expect(p.health).toBe(100);
+  });
+  it('caps fall speed at the bound saves and snapshots accept, even under tuned gravity', () => {
+    const sim = fixture(),
+      p = sim.state.players.local;
+    sim.state.tuning.gravity = 3;
+    p.dev.invincible = true;
+    p.position.y += 110;
+    let fastest = 0;
+    for (let i = 0; i < 120; i++) {
+      sim.tick();
+      fastest = Math.min(fastest, p.velocityY);
+      expect(() => parseState(sim.state)).not.toThrow();
+    }
+    expect(fastest).toBe(-BALANCE.terminalVelocity);
   });
   it('developer flight rises while held, stops on release and descends without affecting ordinary jumps', () => {
     const sim = fixture(),

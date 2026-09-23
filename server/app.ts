@@ -215,7 +215,8 @@ export async function startWorldServer(options: ServerOptions = {}) {
       /* Connection errors are contained by the close handler. */
     });
     socket.on('message', (raw, isBinary) => {
-      if (!healthy || shuttingDown) return;
+      // ws still delivers frames while a socket closes; nothing may act on a closed session.
+      if (!healthy || shuttingDown || socket.readyState !== WebSocket.OPEN) return;
       client.lastSeen = performance.now();
       if (isBinary || !client.limiter.take()) {
         rejectedMessages++;
@@ -367,7 +368,9 @@ export async function startWorldServer(options: ServerOptions = {}) {
     const active = new Set<string>();
     for (const client of clients.values()) {
       if (!client.playerId) {
-        if (now - client.joinedAt > 5000) client.socket.close(1008, 'Handshake timeout');
+        // Terminate rather than close: a client can leave a closing handshake open for 30 s,
+        // keeping its admission slot, and a late hello would still create a survivor.
+        if (now - client.joinedAt > 5000) client.socket.terminate();
         continue;
       }
       active.add(client.playerId);

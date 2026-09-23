@@ -207,6 +207,8 @@ export class WorldRenderer {
   private settings: RenderSettings = { ...DEFAULT_SETTINGS };
   private resolution = 1;
   private maxResolution = 1;
+  /** The device ratio the current cap was computed for. */
+  private devicePixelRatio = 1;
   private stableSeconds = 0;
   private readonly resizeObserver: ResizeObserver;
   private world: WorldDefinition;
@@ -498,6 +500,14 @@ export class WorldRenderer {
     this.clouds.add(batch);
   }
 
+  /** Highest render pixel ratio for the current tier, device ratio and resolution scale. */
+  private pixelRatioCap(): number {
+    this.devicePixelRatio = devicePixelRatio;
+    const tier = this.stats.quality;
+    const limit = tier === 'low' ? 0.8 : tier === 'high' ? 1.75 : tier === 'mobile' ? 1.15 : 1.4;
+    return Math.min(devicePixelRatio, limit) * this.graphics.resolutionScale;
+  }
+
   applySettings(settings: RenderSettings): void {
     this.settings = { ...settings };
     const mobile = matchMedia('(pointer: coarse)').matches;
@@ -510,16 +520,7 @@ export class WorldRenderer {
     ));
     this.ocean.setQuality(tier);
     this.ocean.configureReflections(graphics.planarReflections, tier);
-    this.resolution =
-      tier === 'low'
-        ? Math.min(devicePixelRatio, 0.8)
-        : tier === 'high'
-          ? Math.min(devicePixelRatio, 1.75)
-          : tier === 'mobile'
-            ? Math.min(devicePixelRatio, 1.15)
-            : Math.min(devicePixelRatio, 1.4);
-    this.resolution *= graphics.resolutionScale;
-    this.maxResolution = this.resolution;
+    this.resolution = this.maxResolution = this.pixelRatioCap();
     this.stableSeconds = 0;
     const shadows = (tier !== 'mobile' || graphics.cascadedShadows) && graphics.shadows;
     if (this.renderer.shadowMap.enabled !== shadows)
@@ -914,6 +915,13 @@ export class WorldRenderer {
     active: boolean,
   ): void {
     if (this.renderer.getContext().isContextLost()) return;
+    // Moving the window to another monitor or zooming changes the device ratio without
+    // necessarily resizing the canvas, so recompute the cap rather than keep the old one.
+    if (devicePixelRatio !== this.devicePixelRatio) {
+      this.resolution = this.maxResolution = this.pixelRatioCap();
+      this.stableSeconds = 0;
+      this.resize();
+    }
     const elapsedFrame = this.previousTime
       ? Math.max(0, (time - this.previousTime) / 1000)
       : 1 / 60;

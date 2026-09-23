@@ -1,6 +1,33 @@
 # Alpha verification ledger
 
-Repository audits, frontier progression and editable terrain verification recorded between 2026-09-19 and 2026-09-22 Pacific. This ledger distinguishes implementation, automated evidence, and physical-device QA. The [public CI history](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml) records checks for each revision. Earlier release evidence is retained below as a historical baseline.
+Repository and systems audits, frontier progression and editable terrain verification recorded between 2026-09-19 and 2026-09-22 Pacific. This ledger distinguishes implementation, automated evidence, and physical-device QA. The [public CI history](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml) records checks for each revision. Earlier release evidence is retained below as a historical baseline.
+
+## Systems audit · 2026-09-22, second pass
+
+Five parallel read-only sub-audits covered the shared simulation, world geometry, client and network, rendering, and server/operations. Every high or medium finding was then checked directly. The audit began from `main` at `4e06312` (157 unit/integration tests, 34 browser scenarios). Every fix below has a regression test that fails on the previous code.
+
+- **Structure health residue (world offline).** Grade resistance and upgrade rescaling left a stone foundation at 3.55e-15 health after an ordinary boar/wolf hit sequence. Saves and snapshots require at least 0.001, so the server's save failed and it closed every connection with 1011 and stayed down. Clients also rejected the snapshot, and solo saves and exports failed. This happened in 6.5% of 4,000 random hit orders on an upgraded piece. Remainders below `MIN_STRUCTURE_HEALTH` now destroy the piece.
+- **Survivors trapped inside rocks and ruins.** A jump could carry a survivor over a rock, after which landing ignored the solid. **59 of 215** solid nodes and **3** landmark pieces on the default seed trapped a sprint-jump with no walking or jumping escape. After the change, the same probes find **0** entries and **0** traps. Walking and step-up are unchanged.
+- **Online form values.** A blank, fractional or oversized quantity closed the socket with 1008, which the client treats as final. The client now refuses it with solo's message. A fake-socket test verifies nothing is sent.
+- **Stale menu tab.** A menu drawn before another tab saved started a new expedition over that save without confirmation. The next autosave then removed the old progress from the backup too. A new browser scenario verifies the confirmation appears and storage is untouched.
+- **Terrain replication.** Two edits in one 100 ms snapshot sent the renderer a full baseline: 5,858 samples across 23 chunks instead of 138 in 1. History entries now record their base revision.
+- **Smaller fixes, each covered by a new test:**
+  - Render resolution follows `devicePixelRatio` changes (a browser scenario emulates a 2× display).
+  - Fall speed is capped at the save bound under tuned gravity.
+  - Wolves no longer freeze at zero aggression.
+  - Bloom's high-pass material is disposed.
+  - An interrupted first server boot no longer bricks the data directory.
+  - Stalled handshakes free their slot, and a hello sent after the timeout creates no survivor. A raw-socket test that ignores close frames verifies both.
+
+Final local verification on Windows / Node 24.20.0:
+
+- `npm run check` passes **166 unit/integration tests**, types, lint and both builds; formatting passes.
+- All **36 desktop/touch browser scenarios** pass in 4.1 minutes with zero retries.
+- The two new browser scenarios fail against the previous client code.
+
+The browser runs used a local merge with the open Windows pointer-lock PR, so local runs refused pointer lock and never trapped the cursor. A `GetClipCursor` poller confirmed no trap. Another project's Playwright suite was running at the same time.
+
+Findings that need a policy decision or broader evidence are listed in the [roadmap](roadmap.md#remaining-engineering-follow-ups). They include the survivor registry and forced saves, offline survivors blocking space, ground-bag limits, storage-failure recovery and several building/terrain edge cases.
 
 ## Repository audit · 2026-09-22
 

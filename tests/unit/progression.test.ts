@@ -342,6 +342,22 @@ describe('supported shelters and reinforcement', () => {
       ),
     ).toHaveLength(4);
   });
+  it('lands a survivor who jumps onto a rock on top of it instead of trapping them inside', () => {
+    const { state, p } = fixture();
+    // A seeded rock that used to swallow a sprint-jump from this side for good.
+    const rock = world.resources.find((r) => r.id === 'r106')!;
+    const reach = RESOURCE_TYPES.rock.radius * rock.scale + 0.33,
+      angle = (3 * Math.PI) / 4;
+    const x = rock.x + Math.sin(angle) * (reach + 1.5),
+      z = rock.z + Math.cos(angle) * (reach + 1.5);
+    p.position = { x, y: groundHeight(state, world, x, z), z };
+    p.grounded = true;
+    for (let i = 0; i < 40; i++) {
+      p.input = { ...p.input, forward: 1, strafe: 0, yaw: angle, sprint: true, jump: i === 0 };
+      stepPlayer(state, world, p, 1 / 30);
+    }
+    expect(blocked(state, world, p.position.x, p.position.z, p.position.y)).toBe(false);
+  });
   it('upgrades and repairs atomically, preserves identity, and applies resistance to real damage', () => {
     const { state, p, add } = fixture();
     p.position = { x: 0, y: 8, z: 95 };
@@ -363,6 +379,21 @@ describe('supported shelters and reinforcement', () => {
     expect(wall.health).toBeCloseTo(health - 55);
     expect(wall.grade).toBe('metal');
     expect(parseState(state).buildings[0]).toEqual(wall);
+  });
+  it('destroys a reinforced piece instead of leaving float residue the save schema rejects', () => {
+    const { state, p, add } = fixture();
+    p.position = { x: 0, y: 8, z: 95 };
+    const base = add('foundation', 0, 98, 8.3);
+    for (const bite of [12, 12, 12, 16, 16, 16]) damageStructure(state, world, base.id, bite);
+    p.inventory = { stone: 36, wood: 4 };
+    expect(structureAction(state, world, p, base.id, 'upgrade').ok).toBe(true);
+    expect(base.health).toBe(240);
+    // 240 resisted damage in this order used to leave 3.6e-15 health standing, which
+    // failed every snapshot and save and took a shared world offline.
+    for (const bite of [...Array(5).fill(12), ...Array(15).fill(16)])
+      damageStructure(state, world, base.id, bite);
+    expect(state.buildings).toHaveLength(0);
+    expect(() => parseState(state)).not.toThrow();
   });
   it('preserves chest contents through collapse and refuses voluntary removal of occupied supports', () => {
     const { state, p, add } = fixture();

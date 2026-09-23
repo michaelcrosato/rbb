@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BALANCE } from '../../src/shared/content';
 import { RemoteSession } from '../../src/client/session';
 import { PROTOCOL_VERSION, snapshotFor } from '../../src/shared/protocol';
 import { Simulation } from '../../src/shared/simulation';
@@ -75,6 +76,25 @@ afterEach(() => {
 });
 
 describe('remote session lifecycle', () => {
+  it('rejects an invalid form value locally instead of sending a command the server closes on', async () => {
+    const { session, socket } = await connect();
+    const results: string[] = [];
+    session.onResult = (result) => results.push(result.message);
+    const sent = socket.sent.length;
+    // A blank quantity field reads as 0; the server would answer with a final 1008 close.
+    session.command({ type: 'drop', item: 'wood', count: 0 });
+    session.command({ type: 'collect', target: 'bag1', item: 'wood', count: 2.5 });
+    session.command({ type: 'craft', recipe: 'hatchet', count: BALANCE.craftBatchLimit + 1 });
+    expect(socket.sent).toHaveLength(sent);
+    expect(results).toEqual([
+      'Choose a valid item quantity.',
+      'Choose a valid item quantity.',
+      'Choose a valid recipe and batch.',
+    ]);
+    session.command({ type: 'drop', item: 'wood', count: 1 });
+    expect(socket.sent.at(-1)).toMatchObject({ type: 'command', command: { type: 'drop' } });
+    expect(session.status).toMatch(/^Connected/);
+  });
   it('never replays movement or a jump queued while disconnected', async () => {
     const { session, socket } = await connect();
     socket.close();

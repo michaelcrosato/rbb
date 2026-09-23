@@ -403,6 +403,25 @@ describe('volumetric terrain foundation', () => {
     expect(Object.values(restore.samples)).toContain(null);
     expect(applyTerrainUpdate(remote, restore)).toEqual(state.terrain);
   });
+  it('serves a delta to a renderer behind a client that received several revisions at once', () => {
+    const { state } = fixture();
+    const renderer = applyTerrainUpdate(emptyTerrain(), terrainUpdate(state.terrain)!);
+    sculpt(state, brush());
+    sculpt(state, brush({ mode: 'add', x: 24, y: 9 }));
+    // One snapshot carries revisions 1 and 2 into the client's session state.
+    const session = applyTerrainUpdate(renderer, terrainUpdate(state.terrain, renderer.revision)!);
+    const update = terrainUpdate(session, renderer.revision)!;
+    expect(update.base).toBe(renderer.revision);
+    expect(applyTerrainUpdate(renderer, update)).toEqual(state.terrain);
+    sculpt(state, brush({ mode: 'dig', shape: 'sphere', x: 17, z: 93, radius: 3 }));
+    const later = applyTerrainUpdate(session, terrainUpdate(state.terrain, session.revision)!);
+    expect(terrainUpdate(later, renderer.revision)!.base).toBe(renderer.revision);
+    expect(applyTerrainUpdate(renderer, terrainUpdate(later, renderer.revision)!)).toEqual(
+      state.terrain,
+    );
+    // A revision inside a merged span has no exact patch chain, so it gets a baseline.
+    expect(terrainUpdate(later, 1)!.base).toBe(-1);
+  });
   it('extends the column index per edit to exactly what a full rebuild derives', () => {
     const { state } = fixture();
     const view = (terrain: TerrainState) => {
