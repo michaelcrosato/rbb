@@ -21,3 +21,22 @@ export class TokenBucket {
     return true;
   }
 }
+
+/** Snapshots carry full state, so a client whose socket is backlogged skips them instead of
+ * being dropped. A welcome's terrain baseline counts as buffered while it compresses; only a
+ * backlog that persists marks a stalled client. */
+export class SnapshotBacklog {
+  private since?: number;
+  constructor(
+    private readonly limitBytes: number,
+    private readonly graceMs: number,
+  ) {}
+  check(buffered: number, now = performance.now()): 'send' | 'skip' | 'close' {
+    if (buffered <= this.limitBytes) {
+      this.since = undefined;
+      return 'send';
+    }
+    this.since ??= now;
+    return now - this.since > this.graceMs ? 'close' : 'skip';
+  }
+}
