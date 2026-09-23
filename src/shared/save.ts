@@ -9,6 +9,7 @@ import {
   WILDLIFE,
   GRADE_IDS,
   STRUCTURE_GRADES,
+  MIN_STRUCTURE_HEALTH,
   EQUIPMENT,
 } from './content';
 import type { MilestoneId } from './content';
@@ -63,7 +64,7 @@ const playerSchema = z
     id,
     name: z.string().min(1).max(24),
     position,
-    velocityY: finite.min(-100).max(20),
+    velocityY: finite.min(-BALANCE.terminalVelocity).max(20),
     yaw: finite,
     pitch: finite.min(-1.5).max(1.5),
     health: stat,
@@ -207,7 +208,7 @@ export const stateSchema = v3StateSchema.extend({
       v3StateSchema.shape.buildings.element
         .extend({
           grade: z.enum(GRADE_IDS),
-          health: finite.min(0.001).max(STRUCTURE_GRADES.metal.health),
+          health: finite.min(MIN_STRUCTURE_HEALTH).max(STRUCTURE_GRADES.metal.health),
           open: z.boolean(),
           inventory: containerInventory,
           support: id.nullable(),

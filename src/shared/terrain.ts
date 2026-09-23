@@ -90,7 +90,36 @@ export function terrainIndex(terrain: TerrainState): TerrainIndex {
   const cached = indices.get(terrain);
   if (cached?.revision === terrain.revision) return cached;
   const index: TerrainIndex = { revision: terrain.revision, columns: new Map(), chunks: new Set() };
-  for (const key of Object.keys(terrain.samples)) {
+  indexSamples(index, Object.keys(terrain.samples));
+  indices.set(terrain, index);
+  return index;
+}
+/** The index depends only on which samples exist, and columns/chunks only grow as samples are
+ * added. A patch that deletes no existing sample therefore extends the index to exactly what a
+ * rebuild produces, without rescanning every edit; deletions fall back to a rebuild. */
+const deletesSamples = (terrain: TerrainState, patch: TerrainPatch): boolean =>
+  Object.entries(patch).some(
+    ([key, value]) => value === null && Object.hasOwn(terrain.samples, key),
+  );
+const writtenSamples = (patch: TerrainPatch): string[] =>
+  Object.keys(patch).filter((key) => patch[key] !== null);
+export function indexTerrainPreview(
+  base: TerrainState,
+  next: TerrainState,
+  patch: TerrainPatch,
+): void {
+  if (deletesSamples(base, patch)) return;
+  const source = terrainIndex(base);
+  const index: TerrainIndex = {
+    revision: next.revision,
+    columns: new Map([...source.columns].map(([key, column]) => [key, { ...column }])),
+    chunks: new Set(source.chunks),
+  };
+  indexSamples(index, writtenSamples(patch));
+  indices.set(next, index);
+}
+function indexSamples(index: TerrainIndex, keys: string[]): void {
+  for (const key of keys) {
     const [x, y, z] = key.split(',').map(Number);
     for (const dx of [-1, 0])
       for (const dz of [-1, 0]) {
@@ -105,8 +134,6 @@ export function terrainIndex(terrain: TerrainState): TerrainIndex {
         );
       }
   }
-  indices.set(terrain, index);
-  return index;
 }
 
 export function terrainSample(
@@ -486,16 +513,27 @@ export function planTerrainEdit(
   return { patch, mass };
 }
 
-const histories = new WeakMap<TerrainState, { revision: number; patch: TerrainPatch }[]>();
+/** Recent patches in order. A replicated update can span several revisions, so each entry
+ * records the revision it starts from as well as the one it produces. */
+const histories = new WeakMap<
+  TerrainState,
+  { base: number; revision: number; patch: TerrainPatch }[]
+>();
 export function commitTerrainEdit(terrain: TerrainState, patch: TerrainPatch): void {
   if (!Object.keys(patch).length) return;
+  const cached = indices.get(terrain);
+  const extend = cached?.revision === terrain.revision && !deletesSamples(terrain, patch);
   for (const [key, value] of Object.entries(patch)) {
     if (value === null) delete terrain.samples[key];
     else terrain.samples[key] = value;
   }
   terrain.revision++;
+  if (extend) {
+    indexSamples(cached, writtenSamples(patch));
+    cached.revision = terrain.revision;
+  }
   const history = histories.get(terrain) ?? [];
-  history.push({ revision: terrain.revision, patch });
+  history.push({ base: terrain.revision - 1, revision: terrain.revision, patch });
   if (history.length > 32) history.shift();
   histories.set(terrain, history);
 }
@@ -513,12 +551,17 @@ export const terrainUpdateSchema = z
 export type TerrainUpdate = z.infer<typeof terrainUpdateSchema>;
 export function terrainUpdate(terrain: TerrainState, since = -1): TerrainUpdate | undefined {
   if (since === terrain.revision) return undefined;
-  const history = histories.get(terrain) ?? [];
-  if (since >= 0 && history.some((h) => h.revision === since + 1)) {
-    const samples = Object.assign(
-      {},
-      ...history.filter((h) => h.revision > since).map((h) => h.patch),
-    );
+  const newer = (histories.get(terrain) ?? []).filter((h) => h.revision > since);
+  // Merge only an unbroken chain of patches that starts exactly at `since`. Otherwise a
+  // client that received several revisions in one snapshot would fall back to a full
+  // baseline and remesh every edited chunk.
+  if (
+    since >= 0 &&
+    newer[0]?.base === since &&
+    newer.every((h, i) => i === 0 || h.base === newer[i - 1].revision) &&
+    newer.at(-1)!.revision === terrain.revision
+  ) {
+    const samples = Object.assign({}, ...newer.map((h) => h.patch));
     if (Object.keys(samples).length <= TERRAIN.maxSamples)
       return { base: since, revision: terrain.revision, samples };
   }
@@ -538,9 +581,10 @@ export function applyTerrainUpdate(terrain: TerrainState, update: TerrainUpdate)
   next.revision = update.revision;
   indices.delete(next);
   if (update.base >= 0) {
+    indexTerrainPreview(terrain, next, update.samples);
     histories.set(next, [
       ...(histories.get(terrain) ?? []).slice(-31),
-      { revision: update.revision, patch: update.samples },
+      { base: update.base, revision: update.revision, patch: update.samples },
     ]);
   }
   return next;

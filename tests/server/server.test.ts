@@ -3,12 +3,14 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
+import { createConnection } from 'node:net';
+import { randomBytes } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import pkg from '../../package.json' with { type: 'json' };
 import { startWorldServer } from '../../server/app';
 import { WorldStore } from '../../server/store';
-import { TokenBucket } from '../../server/rate-limit';
+import { SnapshotBacklog, TokenBucket } from '../../server/rate-limit';
 import type { ClientMessage, ServerMessage, Snapshot } from '../../src/shared/protocol';
 import { Simulation } from '../../src/shared/simulation';
 import { createBuilding, createState, idleInput } from '../../src/shared/state';
@@ -552,6 +554,114 @@ describe('authoritative world server', () => {
     outdated.ws.send(JSON.stringify({ type: 'hello', protocol: 1, name: 'Tester' }));
     expect((await outdatedClose)[0]).toBe(1008);
   });
+  it('lets a survivor resume over a new connection once the old one falls silent, even when full', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'rbb-stale-'));
+    directories.push(dir);
+    const server = await startWorldServer({
+      port: 0,
+      host: '127.0.0.1',
+      dataDir: dir,
+      log: () => {},
+      staleSessionMs: 300,
+    });
+    servers.push(server);
+    const crew = [];
+    for (let i = 0; i < BALANCE.maxPlayers; i++) crew.push(await joinWorld(server));
+    const [lost] = crew;
+    // A tab that is still answering keeps its survivor.
+    lost.peer.send({ type: 'ping', at: 1 });
+    await lost.peer.wait('pong');
+    const live = await connect(server);
+    live.send({
+      type: 'hello',
+      protocol: PROTOCOL_VERSION,
+      name: 'Tester',
+      token: lost.welcome.token,
+    });
+    expect((await live.wait('error')).message).toContain('already connected');
+    // The lost tab's network path died: it sends nothing while its teammates keep playing.
+    const departed = once(lost.peer.ws, 'close');
+    for (let seq = 1; seq <= 6; seq++) {
+      await delay(100);
+      for (const { peer } of crew.slice(1)) peer.send({ type: 'ping', at: seq });
+    }
+    const resumed = await joinWorld(server, lost.welcome.token);
+    expect(resumed.welcome.playerId).toBe(lost.welcome.playerId);
+    await departed;
+    await resumed.peer.wait('snapshot', (m) => m.snapshot.players.length === 3);
+    expect(server.diagnostics().connections).toBe(BALANCE.maxPlayers);
+  });
+  it('admits a survivor to a heavily edited world rather than mistaking its baseline for a slow client', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'rbb-baseline-'));
+    directories.push(dir);
+    const world = generateWorld('quiet-frontier'),
+      sim = new Simulation(world, createState(world));
+    sim.addPlayer('excavator', 'Excavator');
+    // 50,000 changed deep samples: a welcome of about 1.3 MB before compression.
+    for (let x = -100; x < 100; x++)
+      for (let z = -125; z < 125; z++) sim.state.terrain.samples[`${x},-20,${z}`] = -1;
+    sim.state.terrain.revision = 1;
+    const store = new WorldStore(join(dir, 'world.db'));
+    store.register('f'.repeat(64), 'excavator');
+    store.save(sim.state);
+    store.close();
+    const server = await setup(dir);
+    const { peer, welcome } = await joinWorld(server, 'f'.repeat(64));
+    expect(Object.keys(welcome.snapshot.terrain!.samples)).toHaveLength(50_000);
+    for (let i = 0; i < 3; i++)
+      expect((await peer.wait('snapshot')).snapshot.terrain).toBeUndefined();
+    expect(peer.ws.readyState).toBe(WebSocket.OPEN);
+  });
+  it('frees a stalled handshake slot and ignores a hello sent after the timeout', async () => {
+    const server = await setup();
+    // A raw client that completes the upgrade and then ignores close frames.
+    const raw = createConnection(server.port, '127.0.0.1');
+    await once(raw, 'connect');
+    raw.write(
+      [
+        'GET / HTTP/1.1',
+        `Host: 127.0.0.1:${server.port}`,
+        'Upgrade: websocket',
+        'Connection: Upgrade',
+        `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}`,
+        'Sec-WebSocket-Version: 13',
+        '',
+        '',
+      ].join('\r\n'),
+    );
+    await once(raw, 'data');
+    raw.on('error', () => {});
+    const players = server.diagnostics().players;
+    expect(server.diagnostics().connections).toBe(1);
+    await delay(5600);
+    const hello = Buffer.from(
+      JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, name: 'Late' }),
+    );
+    const mask = randomBytes(4);
+    raw.write(
+      Buffer.concat([
+        Buffer.from([0x81, 0x80 | hello.length]),
+        mask,
+        hello.map((byte, i) => byte ^ mask[i % 4]),
+      ]),
+    );
+    await delay(300);
+    expect(server.diagnostics().connections).toBe(0);
+    expect(server.diagnostics().players).toBe(players);
+    raw.destroy();
+  });
+  it('limits action bursts and closes message floods', async () => {
+    const server = await setup();
+    const { peer } = await joinWorld(server);
+    for (let seq = 1; seq <= 20; seq++)
+      peer.send({ type: 'command', seq, command: { type: 'consume', item: 'berries' } });
+    const limited = await peer.wait('result', (m) => m.result.message.includes('Too many actions'));
+    expect(limited.seq).toBeGreaterThan(12);
+    const flood = await joinWorld(server);
+    const closed = once(flood.peer.ws, 'close');
+    for (let at = 0; at < 120; at++) flood.peer.send({ type: 'ping', at });
+    expect((await closed)[0]).toBe(1008);
+  });
   it('holds a four-player load without leaking inventory or losing tick authority', async () => {
     const server = await setup();
     const peers = await Promise.all(Array.from({ length: 4 }, () => joinWorld(server)));
@@ -663,6 +773,21 @@ describe('durability and rate limits', () => {
     store.close();
     expect(() => new WorldStore(path)).toThrow(/newer schema/);
   });
+  it('starts a new world when an earlier first boot stopped before its first snapshot', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'rbb-first-boot-'));
+    directories.push(dir);
+    const path = join(dir, 'world.db');
+    new WorldStore(path).close();
+    const store = new WorldStore(path);
+    expect(store.load()).toBeNull();
+    store.save(createState(generateWorld('first-boot')));
+    store.close();
+    const reopened = new WorldStore(path);
+    expect(reopened.load()!.seed).toBe('first-boot');
+    reopened.db.prepare('DELETE FROM snapshots').run();
+    expect(() => reopened.load()).toThrow(/no world was overwritten/);
+    reopened.close();
+  });
   it('atomically recovers a corrupt snapshot from the previous healthy snapshot', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'rbb-store-'));
     directories.push(dir);
@@ -716,5 +841,12 @@ describe('durability and rate limits', () => {
       limiter.take(100000),
       limiter.take(100000),
     ]).toEqual([true, true, true, false]);
+  });
+  it('skips snapshots while a socket is backlogged and closes only a sustained backlog', () => {
+    const backlog = new SnapshotBacklog(1000, 500);
+    expect(backlog.check(0, 0)).toBe('send');
+    expect([backlog.check(5000, 100), backlog.check(5000, 600)]).toEqual(['skip', 'skip']);
+    expect(backlog.check(900, 650)).toBe('send');
+    expect([backlog.check(5000, 700), backlog.check(5000, 1201)]).toEqual(['skip', 'close']);
   });
 });

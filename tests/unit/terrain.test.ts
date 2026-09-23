@@ -5,6 +5,7 @@ import { buildCandidate, validateBuild } from '../../src/shared/building';
 import {
   editTerrain,
   playerEarthwork,
+  previewTerrain,
   resourceSupported,
   terrainAim,
 } from '../../src/shared/earthworks';
@@ -23,12 +24,13 @@ import {
   terrainChunkTriangles,
   terrainDensity,
   terrainFloor,
+  terrainIndex,
   terrainRaycast,
   terrainSchema,
   terrainSurfaces,
   terrainUpdate,
 } from '../../src/shared/terrain';
-import type { TerrainBrush } from '../../src/shared/terrain';
+import type { TerrainBrush, TerrainState } from '../../src/shared/terrain';
 import { generateWorld, terrainHeight } from '../../src/shared/world';
 import { animalAt } from '../../src/shared/wildlife';
 
@@ -400,5 +402,52 @@ describe('volumetric terrain foundation', () => {
     const restore = terrainUpdate(state.terrain, remote.revision)!;
     expect(Object.values(restore.samples)).toContain(null);
     expect(applyTerrainUpdate(remote, restore)).toEqual(state.terrain);
+  });
+  it('serves a delta to a renderer behind a client that received several revisions at once', () => {
+    const { state } = fixture();
+    const renderer = applyTerrainUpdate(emptyTerrain(), terrainUpdate(state.terrain)!);
+    sculpt(state, brush());
+    sculpt(state, brush({ mode: 'add', x: 24, y: 9 }));
+    // One snapshot carries revisions 1 and 2 into the client's session state.
+    const session = applyTerrainUpdate(renderer, terrainUpdate(state.terrain, renderer.revision)!);
+    const update = terrainUpdate(session, renderer.revision)!;
+    expect(update.base).toBe(renderer.revision);
+    expect(applyTerrainUpdate(renderer, update)).toEqual(state.terrain);
+    sculpt(state, brush({ mode: 'dig', shape: 'sphere', x: 17, z: 93, radius: 3 }));
+    const later = applyTerrainUpdate(session, terrainUpdate(state.terrain, session.revision)!);
+    expect(terrainUpdate(later, renderer.revision)!.base).toBe(renderer.revision);
+    expect(applyTerrainUpdate(renderer, terrainUpdate(later, renderer.revision)!)).toEqual(
+      state.terrain,
+    );
+    // A revision inside a merged span has no exact patch chain, so it gets a baseline.
+    expect(terrainUpdate(later, 1)!.base).toBe(-1);
+  });
+  it('extends the column index per edit to exactly what a full rebuild derives', () => {
+    const { state } = fixture();
+    const view = (terrain: TerrainState) => {
+      const index = terrainIndex(terrain);
+      return { columns: [...index.columns].sort(), chunks: [...index.chunks].sort() };
+    };
+    const rebuilt = (terrain: TerrainState) =>
+      view({ ...terrain, samples: { ...terrain.samples } });
+    let remote = applyTerrainUpdate(emptyTerrain(), terrainUpdate(state.terrain)!);
+    for (const b of [
+      brush(),
+      brush({ mode: 'add', x: 24, y: 9 }),
+      brush({ mode: 'dig', shape: 'sphere', x: 17, z: 93, radius: 3 }),
+      brush({ mode: 'restore', radius: 5 }),
+      brush({ mode: 'add', x: 21, y: 8, z: 85 }),
+    ]) {
+      view(state.terrain);
+      const { patch } = planTerrainEdit(state.terrain, world, b);
+      const preview = previewTerrain(state, patch);
+      expect(view(preview)).toEqual(rebuilt(preview));
+      commitTerrainEdit(state.terrain, patch);
+      expect(view(state.terrain)).toEqual(rebuilt(state.terrain));
+      view(remote);
+      remote = applyTerrainUpdate(remote, terrainUpdate(state.terrain, remote.revision)!);
+      expect(view(remote)).toEqual(rebuilt(remote));
+    }
+    expect(remote).toEqual(state.terrain);
   });
 });

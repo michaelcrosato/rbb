@@ -243,7 +243,11 @@ export class PostEffects {
     this.passes = [];
     this.frame.reset('render graph changed');
     this.screenPasses = [];
-    this.composer?.passes.forEach((pass) => pass.dispose());
+    this.composer?.passes.forEach((pass) => {
+      pass.dispose();
+      // three r186's UnrealBloomPass.dispose() leaves its high-pass material (and program) alive.
+      if (pass instanceof UnrealBloomPass) pass.materialHighPassFilter.dispose();
+    });
     this.composer?.dispose();
     this.ao?.gtaoMaterial.dispose();
     this.ao?.blendMaterial.dispose();

@@ -13,6 +13,9 @@ export class WorldStore {
   readonly db: DatabaseSync;
   recovered = false;
   private initialized: boolean;
+  /** This process loaded or wrote the `current` row and validated it then. Re-parsing a large
+   * edited world on every save would double the main-thread stall; the checksum still guards it. */
+  private currentValid = false;
   constructor(path: string) {
     mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
@@ -27,8 +30,7 @@ export class WorldStore {
     this.initialized = version > 0;
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS snapshots (slot TEXT PRIMARY KEY, body TEXT NOT NULL, checksum TEXT NOT NULL, saved_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS identities (token_hash TEXT PRIMARY KEY, player_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
-      PRAGMA user_version=1;`);
+      CREATE TABLE IF NOT EXISTS identities (token_hash TEXT PRIMARY KEY, player_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);`);
   }
   load(): GameState | null {
     const current = this.db
@@ -37,6 +39,7 @@ export class WorldStore {
     const backup = this.db
       .prepare('SELECT body, checksum FROM snapshots WHERE slot = ?')
       .get('backup') as { body: string; checksum: string } | undefined;
+    this.currentValid = false;
     if (!current && !backup && !this.initialized) return null;
     const parse = (row: { body: string; checksum: string }) => {
       if (checksum(row.body) !== row.checksum) throw new Error('Snapshot checksum mismatch');
@@ -44,7 +47,9 @@ export class WorldStore {
     };
     if (current) {
       try {
-        return parse(current);
+        const state = parse(current);
+        this.currentValid = true;
+        return state;
       } catch {}
     }
     if (backup) {
@@ -68,7 +73,7 @@ export class WorldStore {
         .get('current') as { body: string; checksum: string } | undefined;
       if (current && checksum(current.body) === current.checksum) {
         try {
-          parseState(JSON.parse(current.body));
+          if (!this.currentValid) parseState(JSON.parse(current.body));
           this.db.exec(
             "INSERT OR REPLACE INTO snapshots SELECT 'backup', body, checksum, saved_at FROM snapshots WHERE slot = 'current'",
           );
@@ -79,8 +84,12 @@ export class WorldStore {
           'INSERT OR REPLACE INTO snapshots (slot, body, checksum, saved_at) VALUES (?, ?, ?, ?)',
         )
         .run('current', body, checksum(body), new Date().toISOString());
+      // Mark the database as a world only with its first snapshot. Stamping it on open made a
+      // first boot interrupted before saving look like a damaged world on every later start.
+      if (!this.initialized) this.db.exec('PRAGMA user_version=1');
       this.db.exec('COMMIT');
       this.initialized = true;
+      this.currentValid = true;
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;

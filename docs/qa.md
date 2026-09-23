@@ -1,6 +1,50 @@
 # Alpha verification ledger
 
-Repository audit, frontier progression and editable terrain verification recorded on 2026-09-19 Pacific. This ledger distinguishes implementation, automated evidence, and physical-device QA. The [public CI history](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml) records checks for each revision. Earlier release evidence is retained below as a historical baseline.
+Repository and systems audits, frontier progression and editable terrain verification recorded between 2026-09-19 and 2026-09-22 Pacific. This ledger distinguishes implementation, automated evidence, and physical-device QA. The [public CI history](https://github.com/michaelcrosato/rbb/actions/workflows/ci.yml) records checks for each revision. Earlier release evidence is retained below as a historical baseline.
+
+## Systems audit · 2026-09-22, second pass
+
+Five parallel read-only sub-audits covered the shared simulation, world geometry, client and network, rendering, and server/operations. Every high or medium finding was then checked directly. The audit began from `main` at `4e06312` (157 unit/integration tests, 34 browser scenarios). Every fix below has a regression test that fails on the previous code.
+
+- **Structure health residue (world offline).** Grade resistance and upgrade rescaling left a stone foundation at 3.55e-15 health after an ordinary boar/wolf hit sequence. Saves and snapshots require at least 0.001, so the server's save failed and it closed every connection with 1011 and stayed down. Clients also rejected the snapshot, and solo saves and exports failed. This happened in 6.5% of 4,000 random hit orders on an upgraded piece. Remainders below `MIN_STRUCTURE_HEALTH` now destroy the piece.
+- **Survivors trapped inside rocks and ruins.** A jump could carry a survivor over a rock, after which landing ignored the solid. **59 of 215** solid nodes and **3** landmark pieces on the default seed trapped a sprint-jump with no walking or jumping escape. After the change, the same probes find **0** entries and **0** traps. Walking and step-up are unchanged.
+- **Online form values.** A blank, fractional or oversized quantity closed the socket with 1008, which the client treats as final. The client now refuses it with solo's message. A fake-socket test verifies nothing is sent.
+- **Stale menu tab.** A menu drawn before another tab saved started a new expedition over that save without confirmation. The next autosave then removed the old progress from the backup too. A new browser scenario verifies the confirmation appears and storage is untouched.
+- **Terrain replication.** Two edits in one 100 ms snapshot sent the renderer a full baseline: 5,858 samples across 23 chunks instead of 138 in 1. History entries now record their base revision.
+- **Smaller fixes, each covered by a new test:**
+  - Render resolution follows `devicePixelRatio` changes (a browser scenario emulates a 2× display).
+  - Fall speed is capped at the save bound under tuned gravity.
+  - Wolves no longer freeze at zero aggression.
+  - Bloom's high-pass material is disposed.
+  - An interrupted first server boot no longer bricks the data directory.
+  - Stalled handshakes free their slot, and a hello sent after the timeout creates no survivor. A raw-socket test that ignores close frames verifies both.
+
+Final local verification on Windows / Node 24.20.0:
+
+- `npm run check` passes **166 unit/integration tests**, types, lint and both builds; formatting passes.
+- All **36 desktop/touch browser scenarios** pass in 4.1 minutes with zero retries.
+- The two new browser scenarios fail against the previous client code.
+
+The browser runs used a local merge with the open Windows pointer-lock PR, so local runs refused pointer lock and never trapped the cursor. A `GetClipCursor` poller confirmed no trap. Another project's Playwright suite was running at the same time.
+
+Findings that need a policy decision or broader evidence are listed in the [roadmap](roadmap.md#remaining-engineering-follow-ups). They include the survivor registry and forced saves, offline survivors blocking space, ground-bag limits, storage-failure recovery and several building/terrain edge cases.
+
+## Repository audit · 2026-09-22
+
+The audit read the shared simulation and server directly and reviewed rendering, the client shell/UI, world geometry and tooling/CI in parallel. It began from clean `main` at `18ef846` (0.3.1): **151 unit/integration tests**, types, lint, both builds and all **34 browser scenarios** passed; the last eight CI runs were green; production `/api/health` reported 0.3.1 / protocol 4; `npm audit` reported zero vulnerabilities; the documented item, recipe, building and tuning counts match the registry.
+
+Confirmed fixes, each reproduced before the change. Timings are uncontended Windows / Node 24.20.0 measurements; runs taken while browser tests were active read three to four times higher and are not quoted.
+
+- **Joining edited worlds.** A world with 50,000 or 160,000 changed terrain samples closed the joining survivor as a slow client **12 of 12 times** on localhost: `ws` counts a message's uncompressed size as buffered while compressing it, so the next 10 Hz snapshot found the welcome's baseline over the 512 KB guard. 20,000 samples still joined. Backlogged sockets now skip snapshots and close after ten seconds of sustained backlog, with a 16 MB hard bound. **36 of 36** joins at 20k/50k/160k stayed connected afterwards. A real-server regression seeds 50,000 samples.
+- **Rejoining after a network switch.** When the path to a tab died, resuming was refused as "already connected in another tab" for 25–35 seconds until the heartbeat dropped the old socket, and the client stopped retrying and suggested a new survivor, which would strand the original. A resume now replaces that survivor's connection after 15 seconds of silence (live tabs answer heartbeats even when hidden), token resolution precedes the world-full check, and the client retries rejoin rejections within its bounded schedule. Server and fake-socket regressions fail against the previous code.
+- **Terrain command cost.** Each edit rebuilt the whole column index for the preview and again after commit. A successful dig plus tick took **11 / 39 / 83 / 165 ms** at 5k / 20k / 40k / 80k samples, and a deposit without dirt took 6–100 ms with no cooldown. They now take **3 / 8 / 16 / 39 ms** and under 1 ms. Previews, commits and network patches extend the index incrementally; a test asserts it equals a full rebuild, including deletions.
+- **Frozen wildlife.** **16 of 504** land animals across 12 seeds, including quiet-frontier's boar1, never moved in 60 seconds: slope probes used the animal's step height, and animals seeded inside a trunk could not leave it. None remain frozen; generated placement is unchanged.
+- **Server saves** re-validated the snapshot they had just written: **66 / 161 / 565 ms** per save at 20k / 50k / 160k samples, now **41 / 94 / 318 ms**.
+- Menus suppressed Space and arrow keys, so Space could not press a focused button. The container health check ignored `PORT`. The 16 MB save test passed on invalid JSON regardless of the bound. Action-burst and message-flood limits had no integration coverage.
+
+Final local verification: `npm run check` passes **157 unit/integration tests**, types, lint and both builds; formatting passes; all **34 desktop/touch browser scenarios** pass in 5.0 minutes with zero retries. The container health-check command was run through `sh -c` against a world server on a non-default port; the Docker daemon remains unavailable locally, so image build and restart stay a CI gate.
+
+Verified findings that were not changed are listed in the [roadmap](roadmap.md#remaining-engineering-follow-ups): persistence validation cost at high terrain counts, terrain-protection sampling, probe and other presentation issues, client UX gaps, and delivery gates (no branch protection; Vercel deploys before CI completes). No physical RTX 3070 Ti/S25 or WAN evidence is claimed.
 
 ## Repository audit · 2026-09-19
 
@@ -165,7 +209,7 @@ Human device QA should record browser version, exact GPU/phone, viewport, preset
 - Cooperative shared world; no PvP, verified accounts, moderation, storage permissions, tool wear or technology tree yet. Owners can dismantle empty unsupported pieces; doors, roofs, shared chests and structure damage/repair are implemented.
 - Remote snapshots are 10 Hz. Camera, wildlife and remote survivor motion are smoothed at render rate. Client prediction and buffered snapshot interpolation remain future work; Internet latency is visible in movement.
 - Weather is visual/environmental; temperature, slippery surfaces and weather-driven needs are future work. Ocean waves do not displace gameplay physics. Advanced rendering limitations and deferred techniques are listed in the [feature matrix](rendering-and-world.md).
-- Server limit: 4 simultaneous players, 512 registered survivors, 512 building pieces. This is a single-process SQLite deployment. Reconnects need a free player slot.
+- Server limit: 4 simultaneous players, 512 registered survivors, 512 building pieces. This is a single-process SQLite deployment. Reconnects need a free player slot; a survivor's own connection that has been silent for 15 seconds no longer holds one.
 - The world is a finite island, with chunk culling and optional GPU-buffer residency rather than unbounded world streaming.
 - Saves are origin-local, with one active solo slot and a previous healthy backup. HTTPS/localhost solo sessions use Web Locks to prevent concurrent tabs; return to the menu or close the active tab to release ownership. Non-secure LAN origins lack Web Locks: changed-slot checks stop stale writes but cannot guarantee atomic exclusion for simultaneous writes. Use one solo tab there. Export before changing browser/device or clearing site data.
 - The local Docker daemon is not running; the image build/restart verification was executed successfully in GitHub CI.

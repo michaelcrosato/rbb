@@ -10,8 +10,12 @@ import type { ServerMessage } from '../src/shared/protocol';
 import { Simulation } from '../src/shared/simulation';
 import { createState, idleInput } from '../src/shared/state';
 import { DEFAULT_SEED, generateWorld } from '../src/shared/world';
-import { TokenBucket } from './rate-limit';
+import { SnapshotBacklog, TokenBucket } from './rate-limit';
 import { WorldStore } from './store';
+
+/** Hard memory bound per socket, above any legitimate message: a welcome carrying the maximum
+ * terrain baseline is about 4 MB before compression. */
+const MAX_BUFFERED_BYTES = 16_000_000;
 
 export interface ServerOptions {
   allowDevTools?: boolean;
@@ -21,6 +25,8 @@ export interface ServerOptions {
   seed?: string;
   allowedOrigins?: string[];
   saveIntervalMs?: number;
+  /** A resume replaces a connection to the same survivor that has been silent this long. */
+  staleSessionMs?: number;
   log?: (message: string) => void;
 }
 interface Client {
@@ -30,13 +36,18 @@ interface Client {
   terrainRevision: number;
   lastInput: number;
   lastPong: number;
+  /** Any message or heartbeat pong; live tabs answer pings even when hidden. */
+  lastSeen: number;
   limiter: TokenBucket;
   actions: TokenBucket;
+  backlog: SnapshotBacklog;
   joinedAt: number;
 }
 
 export async function startWorldServer(options: ServerOptions = {}) {
   const log = options.log ?? console.log;
+  // Longer than the 10 s heartbeat, so a hidden but live tab always answers in time.
+  const staleSessionMs = options.staleSessionMs ?? 15_000;
   const store = new WorldStore(join(options.dataDir ?? './data', 'world.db'));
   let saved;
   try {
@@ -163,7 +174,7 @@ export async function startWorldServer(options: ServerOptions = {}) {
 
   const send = (socket: WebSocket, message: ServerMessage) => {
     if (socket.readyState !== WebSocket.OPEN) return;
-    if (socket.bufferedAmount > 512_000) {
+    if (socket.bufferedAmount > MAX_BUFFERED_BYTES) {
       socket.close(1013, 'Client is too slow');
       return;
     }
@@ -190,19 +201,23 @@ export async function startWorldServer(options: ServerOptions = {}) {
       terrainRevision: -1,
       lastInput: now,
       lastPong: now,
+      lastSeen: now,
       limiter: new TokenBucket(65, 90),
       actions: new TokenBucket(8, 12),
+      backlog: new SnapshotBacklog(512_000, 10_000),
       joinedAt: now,
     };
     clients.set(socket, client);
     socket.on('pong', () => {
-      client.lastPong = performance.now();
+      client.lastPong = client.lastSeen = performance.now();
     });
     socket.on('error', () => {
       /* Connection errors are contained by the close handler. */
     });
     socket.on('message', (raw, isBinary) => {
-      if (!healthy || shuttingDown) return;
+      // ws still delivers frames while a socket closes; nothing may act on a closed session.
+      if (!healthy || shuttingDown || socket.readyState !== WebSocket.OPEN) return;
+      client.lastSeen = performance.now();
       if (isBinary || !client.limiter.take()) {
         rejectedMessages++;
         socket.close(1008, 'Message limit exceeded');
@@ -227,14 +242,6 @@ export async function startWorldServer(options: ServerOptions = {}) {
           socket.close(1008, 'Already joined');
           return;
         }
-        if ([...clients.values()].filter((c) => c.playerId).length >= BALANCE.maxPlayers) {
-          send(socket, {
-            type: 'error',
-            message: `World full (${BALANCE.maxPlayers}/${BALANCE.maxPlayers}). Wait for a survivor to leave, then join again.`,
-          });
-          socket.close(1008, 'World full');
-          return;
-        }
         let token = message.token,
           playerId: string | undefined;
         if (token) {
@@ -247,7 +254,10 @@ export async function startWorldServer(options: ServerOptions = {}) {
             socket.close(1008);
             return;
           }
-          if ([...clients.values()].some((c) => c.playerId === playerId)) {
+          const previous = [...clients.values()].find((c) => c.playerId === playerId);
+          // A browser whose network path died resumes before the heartbeat notices. The token
+          // proves ownership, so a silent connection yields; a live tab keeps its survivor.
+          if (previous && performance.now() - previous.lastSeen < staleSessionMs) {
             send(socket, {
               type: 'error',
               message:
@@ -256,7 +266,20 @@ export async function startWorldServer(options: ServerOptions = {}) {
             socket.close(1008);
             return;
           }
-        } else {
+          if (previous) {
+            previous.playerId = undefined;
+            previous.socket.terminate();
+          }
+        }
+        if ([...clients.values()].filter((c) => c.playerId).length >= BALANCE.maxPlayers) {
+          send(socket, {
+            type: 'error',
+            message: `World full (${BALANCE.maxPlayers}/${BALANCE.maxPlayers}). Wait for a survivor to leave, then join again.`,
+          });
+          socket.close(1008, 'World full');
+          return;
+        }
+        if (!playerId) {
           if (Object.keys(sim.state.players).length >= BALANCE.maxSurvivors) {
             send(socket, {
               type: 'error',
@@ -345,7 +368,9 @@ export async function startWorldServer(options: ServerOptions = {}) {
     const active = new Set<string>();
     for (const client of clients.values()) {
       if (!client.playerId) {
-        if (now - client.joinedAt > 5000) client.socket.close(1008, 'Handshake timeout');
+        // Terminate rather than close: a client can leave a closing handshake open for 30 s,
+        // keeping its admission slot, and a late hello would still create a survivor.
+        if (now - client.joinedAt > 5000) client.socket.terminate();
         continue;
       }
       active.add(client.playerId);
@@ -361,9 +386,14 @@ export async function startWorldServer(options: ServerOptions = {}) {
         sim.tick(1 / BALANCE.tickRate, active);
         accumulator -= 1 / BALANCE.tickRate;
         if (sim.state.tick % 3 === 0)
-          for (const client of clients.values())
-            if (client.playerId)
+          for (const client of clients.values()) {
+            if (!client.playerId) continue;
+            // Decide before building: a skipped snapshot must not advance the terrain revision.
+            const pace = client.backlog.check(client.socket.bufferedAmount, now);
+            if (pace === 'close') client.socket.close(1013, 'Client is too slow');
+            else if (pace === 'send')
               send(client.socket, { type: 'snapshot', snapshot: snapshot(client) });
+          }
       }
       const events = sim.drainEvents();
       for (const client of clients.values())

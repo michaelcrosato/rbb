@@ -57,7 +57,7 @@ describe('versioned saves and recovery', () => {
       mutate(state);
       expect(() => parseSave(encodeSave(state, 'local'))).toThrow();
     }
-    expect(() => parseSave('x'.repeat(16_000_001))).toThrow();
+    expect(() => parseSave('x'.repeat(16_000_001))).toThrow('larger than 16 MB');
     expect(() => parseSave('{bad')).toThrow();
     const raw = encodeSave(fixture(), 'local').replace('"rock":1', '"adminWeapon":1');
     expect(() => parseSave(raw)).toThrow();

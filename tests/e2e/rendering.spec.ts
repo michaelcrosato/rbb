@@ -274,3 +274,23 @@ test('normal multiplayer servers permit local graphics controls without sandbox 
   await page.getByRole('button', { name: 'Close panel', exact: true }).press('Enter');
   await expect.poll(async () => (await diagnostics(page)).tick).toBeGreaterThan(after.tick);
 });
+
+test('render resolution follows a device pixel ratio change such as a move to another monitor', async ({
+  page,
+}) => {
+  // Mobile caps the ratio at 1.15, and startSolo applies a 0.5 resolution scale.
+  await startSolo(page, 'mobile');
+  await expect.poll(async () => (await diagnostics(page)).renderer.pixelRatio).toBeCloseTo(0.5);
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      ...page.viewportSize()!,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
+    await expect.poll(async () => (await diagnostics(page)).renderer.pixelRatio).toBeCloseTo(0.575);
+  } finally {
+    await cdp.send('Emulation.clearDeviceMetricsOverride');
+    await cdp.detach();
+  }
+});

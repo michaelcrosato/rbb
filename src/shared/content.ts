@@ -716,6 +716,10 @@ export const STRUCTURE_GRADES = {
 >;
 export type StructureGrade = keyof typeof STRUCTURE_GRADES;
 export const GRADE_IDS = Object.keys(STRUCTURE_GRADES) as StructureGrade[];
+/** A standing piece keeps at least this much health; smaller remainders destroy it. Grade
+ * resistance and upgrade rescaling leave float residue (e.g. 3.6e-15) that saves and
+ * snapshots must never carry. */
+export const MIN_STRUCTURE_HEALTH = 0.001;
 export const SITE_TYPES = {
   camp: {
     name: 'Wayfarer camp',
@@ -819,6 +823,8 @@ export const BALANCE = {
   sprintSpeed: 8,
   swimSpeed: 2.6,
   gravity: 22,
+  /** Fastest fall in m/s; saves and snapshots reject anything faster. */
+  terminalVelocity: 100,
   jumpSpeed: 7.2,
   interactRange: 3.8,
   buildRange: 8,

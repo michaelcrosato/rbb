@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BALANCE } from '../../src/shared/content';
 import { RemoteSession } from '../../src/client/session';
 import { PROTOCOL_VERSION, snapshotFor } from '../../src/shared/protocol';
 import { Simulation } from '../../src/shared/simulation';
@@ -75,6 +76,25 @@ afterEach(() => {
 });
 
 describe('remote session lifecycle', () => {
+  it('rejects an invalid form value locally instead of sending a command the server closes on', async () => {
+    const { session, socket } = await connect();
+    const results: string[] = [];
+    session.onResult = (result) => results.push(result.message);
+    const sent = socket.sent.length;
+    // A blank quantity field reads as 0; the server would answer with a final 1008 close.
+    session.command({ type: 'drop', item: 'wood', count: 0 });
+    session.command({ type: 'collect', target: 'bag1', item: 'wood', count: 2.5 });
+    session.command({ type: 'craft', recipe: 'hatchet', count: BALANCE.craftBatchLimit + 1 });
+    expect(socket.sent).toHaveLength(sent);
+    expect(results).toEqual([
+      'Choose a valid item quantity.',
+      'Choose a valid item quantity.',
+      'Choose a valid recipe and batch.',
+    ]);
+    session.command({ type: 'drop', item: 'wood', count: 1 });
+    expect(socket.sent.at(-1)).toMatchObject({ type: 'command', command: { type: 'drop' } });
+    expect(session.status).toMatch(/^Connected/);
+  });
   it('never replays movement or a jump queued while disconnected', async () => {
     const { session, socket } = await connect();
     socket.close();
@@ -187,17 +207,41 @@ describe('remote session lifecycle', () => {
     expect(session.status).toBe('Incompatible server data');
   });
 
-  it('detects stalled connections and retains a server rejoin error without retrying', async () => {
+  it('detects stalled connections and keeps retrying the same survivor after rejoin rejections', async () => {
     const { session, socket } = await connect();
+    const toasts: string[] = [];
+    session.onResult = (result) => toasts.push(result.message);
     await vi.advanceTimersByTimeAsync(12001);
     session.update(3.1);
     expect(socket.readyState).toBe(3);
-    await vi.advanceTimersByTimeAsync(1000);
-    const next = FakeSocket.instances.at(-1)!;
-    next.open();
-    next.receive({ type: 'error', message: 'World full (4/4).' });
+    // The server has not yet released the dead socket: rejoining must not abandon the survivor.
+    const busy = 'This survivor is already connected in another tab.';
+    for (const delay of [1000, 2000]) {
+      await vi.advanceTimersByTimeAsync(delay);
+      const next = FakeSocket.instances.at(-1)!;
+      next.open();
+      expect(next.sent[0]).toMatchObject({ type: 'hello', token: 'a'.repeat(64) });
+      next.receive({ type: 'error', message: busy });
+      expect(session.status).toBe('Disconnected · reconnecting…');
+    }
+    await vi.advanceTimersByTimeAsync(4000);
+    const resumed = FakeSocket.instances.at(-1)!;
+    resumed.open();
+    resumed.receive(welcome());
+    expect(session.status).toContain('Connected');
+    expect(toasts).toEqual([]);
+
+    // A rejection that outlasts the bounded schedule is reported, then retries stop.
+    resumed.close();
+    for (const delay of [1000, 2000, 4000, 8000, 10000, 10000]) {
+      await vi.advanceTimersByTimeAsync(delay);
+      const next = FakeSocket.instances.at(-1)!;
+      next.open();
+      next.receive({ type: 'error', message: 'World full (4/4).' });
+    }
     expect(session.status).toBe('World full (4/4).');
     expect(vi.getTimerCount()).toBe(0);
+    session.close();
   });
 
   it('uses tab credentials even when local storage is unavailable', async () => {

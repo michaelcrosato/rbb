@@ -47,7 +47,11 @@ export class Input {
         }
         if ((e.target as HTMLElement)?.matches('input, select, textarea')) return;
         if (e.code === 'Tab' && !this.active) return;
-        if (['Tab', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code))
+        // Menus keep native Space activation and arrow-key scrolling.
+        if (
+          this.active &&
+          ['Tab', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)
+        )
           e.preventDefault();
         this.keys.add(e.code);
         if (e.repeat) return;

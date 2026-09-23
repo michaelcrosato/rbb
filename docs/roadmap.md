@@ -76,6 +76,27 @@ Player-hosted browser sessions, automatic relays/server discovery, reserved reco
 
 The [QA ledger](qa.md) records verification results and limitations, including non-secure-origin save fallback and the distinction between unit coverage and browser evidence.
 
+## Repository audit · 2026-09-22
+
+- [x] Admit survivors to heavily edited worlds: a welcome's terrain baseline no longer trips the slow-client close; backlogged sockets skip snapshots and only a sustained backlog disconnects.
+- [x] Recover a survivor after a network switch: a resume replaces that survivor's silent connection, and the client keeps retrying rejoin rejections instead of advising a new survivor.
+- [x] Make terrain commands scale with the edit rather than the world: incremental column index for previews, commits and network patches; dirt affordability checked before the preview.
+- [x] Let wildlife roam walkable slopes and step out of seeded trunk overlaps; halve server save cost by not re-validating the snapshot it wrote.
+- [x] Restore Space/arrow keys in menus, honor `PORT` in the container health check, and cover action/message limits and the 16 MB save bound.
+
+[QA](qa.md#repository-audit--2026-09-22) records the measurements and verification.
+
+## Systems audit · 2026-09-22, second pass
+
+- [x] Destroy a structure whose remaining health would fall below the schema minimum. A 3.6e-15 remainder failed every save and snapshot and took a shared world offline.
+- [x] Land survivors on rocks, quarry nodes and landmark pieces they clear mid-jump, instead of trapping them inside (59 of 215 solid nodes on the default seed).
+- [x] Reject invalid quantities and levels on the client before an online command, as solo does; the server's final close had ended the session.
+- [x] Re-read the solo save before Start and Export, so a menu drawn before another tab saved no longer replaces that save unconfirmed or exports a stale copy.
+- [x] Send the renderer terrain deltas across multi-revision snapshots, follow `devicePixelRatio` changes, cap fall speed at the save bound, let wolves roam at zero aggression, and dispose bloom's high-pass material.
+- [x] Server: mark a database as a world only with its first snapshot, terminate stalled handshakes, and ignore frames from closing sockets.
+
+[QA](qa.md#systems-audit--2026-09-22-second-pass) records the verification.
+
 ## Remaining engineering follow-ups
 
 Verified by reading the code, deferred because each needs browser or hardware evidence before it is clearly worth its risk:
@@ -84,6 +105,40 @@ Verified by reading the code, deferred because each needs browser or hardware ev
 - GTAO still rasterizes its own normal pre-pass although the shared depth/normal buffers exist. Investigate reuse with visual equivalence and GPU measurements before replacing it.
 - `renderer.ts` owns culling tables, collision-debug geometry, actor interpolation, camp lights and auto-quality. Split by ownership, and derive the height-map encoding constants in the water, buffer and fog shaders from `WORLD_HALF`/`WORLD_SIZE`.
 - Non-terrain snapshots remain full state at 10 Hz per client (about 47 KB each with a 400-piece camp). Terrain now uses revision patches. General interest management and entity deltas remain prerequisites for larger worlds or player counts.
+
+Verified by the 2026-09-22 audit and deferred as presentation, UX or larger-scope work:
+
+- A survivor can end up inside a low structure solid and become stuck. `bodyIntersects` treats the body as a 0.66 m square, but `stepPlayer`'s floor probe samples only its centre and edge midpoints. Walking off the side of a raised stair step keeps its height; the survivor then settles onto the foundation with a body corner inside the step. Every walking move that still overlaps it is blocked (sub-steps of 0.13–0.17 m cannot clear a 0.19–0.25 m overlap); only a step-up direction or a jump escapes. Reproduced headlessly at (−0.99, 8.30, 102.08) beside the stairs of the progression stairwell journey, whose navigator reached it on a slow Linux runner in PR #11's first CI run. A likely fix counts structure solids under the whole footprint as floor, as the ceiling check already does; it changes movement beside every structure, so it needs the full browser suite.
+- Persistence validates the whole terrain on the main thread: about 0.3 s per server save and a similar solo autosave hitch at 160,000 samples (40 ms at 20,000). Terrain previews still copy every sample (about 24 ms at 80,000), which occupancy failures also pay. Consider validating only changed terrain or moving serialization off the tick.
+- Terrain protection samples structure solids on a 3 × 3 grid from the piece's base (`earthworks.ts`, `building.ts`): fills can intrude into walls or slabs and digs beside a foundation can lower its ground by about a metre. A terrain edit also reactivates quarry nodes that save migration disabled, and `terrainBodyClear` never terminates for body heights of 0.08 m or less (no current caller).
+- Indirect-light probes are all cleared on each 40 m recenter and on any world change, so indirect light fades while walking; probe heights ignore terrain edits. Solo environment-change detection compares the live environment object, and 60× sky resets history every online snapshot. Sun/moon shadow maps stay allocated after cascades or shadows are disabled.
+- Smaller presentation issues: a stale selection ring during placement, furnace glow merged away by model compaction, solo wildlife gait scaled for 10 Hz snapshots, and the half-texel ocean height-map offset (fix with the constants above).
+- Client UX: Import replaces the solo slot without the New-expedition confirmation and its one-deep backup is overwritten by the next autosave; a dead survivor who cannot reconnect has no route from the death panel to the menu; ambient audio continues in hidden tabs; quick-slot and dismantle controls reset when any building changes; the storage-unavailable warning fires before the session is attached; the menu's save description is stale after leaving a world; a snapshot missing a landmark stops the frame loop; terrain hints say "Hold E" although only the mouse repeats.
+- Delivery: `main` has no branch protection, and Vercel deploys production before CI finishes, so a failing commit can reach the public client. The container CI job restarts rather than recreates the container, so it does not prove the named volume holds the world. The browser world fixture leaves its temporary database behind on Windows.
+
+Verified by the second-pass systems audit and deferred because each needs a policy decision or broader evidence:
+
+- The survivor registry only grows. Every tokenless hello creates a survivor, so join/leave churn from a few addresses can fill the 512-survivor registry for the life of the data directory, and every join and disconnect forces a full synchronous save. This needs a guest retention policy (for example pruning survivors that never resume) and save coalescing.
+- Offline survivors are hidden from snapshots but still block doors, placement, terrain fill and regrowth, so a teammate who logs off in a doorway locks it for everyone. Releasing their space needs a rule for where they reappear.
+- One survivor can fill the 2,048-bag pool, since there is no per-survivor cap. That blocks everyone's drops and hunting and inflates every snapshot to about 250 KB. Commands that advance `state.tick` can also skip the every-30-ticks maintenance when timed deliberately.
+- Server operations:
+  - `healthy` never recovers after a storage error.
+  - A failed startup save still reports ready, and a failed shutdown save exits 0.
+  - Nothing stops two processes sharing one `world.db`.
+  - A full per-address table rejects new addresses for 120 s.
+  - Compose always supplies localhost origins, so a public deployment answers every browser with 403.
+- Building and terrain edge cases:
+  - The undermine check ignores surfaces above a piece's base, so uphill ruins can be left floating.
+  - A stairwell opening counts as support.
+  - Fill checks start above slab tops.
+  - v3 → v4 migration can place a quarry node on a survivor and gives furniture no support.
+- Client: Restore checkpoint matches only the seed and the fixed solo id, so it can restore another expedition on the same seed. After a server crash, a coinciding terrain revision can leave the renderer on stale terrain.
+- Rendering and upkeep:
+  - With opt-in occlusion culling, moving wildlife and the held tool occlude chunks.
+  - FPS diagnostics clamp at 10 fps.
+  - Several hot paths allocate every frame.
+  - Survival rates, respawn vitals, cooldowns, fall damage, wildlife radii and bag lifetimes live outside `content.ts`.
+  - The 12-socket cap, 429, heartbeat termination, storage failure and the registry cap have no server tests.
 
 ## Subsequent iterations
 
