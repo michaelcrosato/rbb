@@ -183,6 +183,11 @@ test('solo tabs protect the active save and load the latest expedition after own
   await expect.poll(async () => (await diagnostics(second)).mode).toBe('solo');
   expect((await diagnostics(second)).player.inventory).toEqual(inventory);
   await second.close();
+  // close() resolves before the closed tab's Web Lock is released (up to ~130 ms later here).
+  // Continue only after that release, or its ifAvailable lock request can lose the race.
+  await expect
+    .poll(() => page.evaluate(async () => (await navigator.locks.query()).held?.length ?? 0))
+    .toBe(0);
   await page.bringToFront();
   await page.getByRole('button', { name: 'Continue expedition' }).press('Enter');
   await expect.poll(async () => (await diagnostics(page)).mode).toBe('solo');
