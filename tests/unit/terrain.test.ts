@@ -5,6 +5,7 @@ import { buildCandidate, validateBuild } from '../../src/shared/building';
 import {
   editTerrain,
   playerEarthwork,
+  previewTerrain,
   resourceSupported,
   terrainAim,
 } from '../../src/shared/earthworks';
@@ -23,12 +24,13 @@ import {
   terrainChunkTriangles,
   terrainDensity,
   terrainFloor,
+  terrainIndex,
   terrainRaycast,
   terrainSchema,
   terrainSurfaces,
   terrainUpdate,
 } from '../../src/shared/terrain';
-import type { TerrainBrush } from '../../src/shared/terrain';
+import type { TerrainBrush, TerrainState } from '../../src/shared/terrain';
 import { generateWorld, terrainHeight } from '../../src/shared/world';
 import { animalAt } from '../../src/shared/wildlife';
 
@@ -400,5 +402,33 @@ describe('volumetric terrain foundation', () => {
     const restore = terrainUpdate(state.terrain, remote.revision)!;
     expect(Object.values(restore.samples)).toContain(null);
     expect(applyTerrainUpdate(remote, restore)).toEqual(state.terrain);
+  });
+  it('extends the column index per edit to exactly what a full rebuild derives', () => {
+    const { state } = fixture();
+    const view = (terrain: TerrainState) => {
+      const index = terrainIndex(terrain);
+      return { columns: [...index.columns].sort(), chunks: [...index.chunks].sort() };
+    };
+    const rebuilt = (terrain: TerrainState) =>
+      view({ ...terrain, samples: { ...terrain.samples } });
+    let remote = applyTerrainUpdate(emptyTerrain(), terrainUpdate(state.terrain)!);
+    for (const b of [
+      brush(),
+      brush({ mode: 'add', x: 24, y: 9 }),
+      brush({ mode: 'dig', shape: 'sphere', x: 17, z: 93, radius: 3 }),
+      brush({ mode: 'restore', radius: 5 }),
+      brush({ mode: 'add', x: 21, y: 8, z: 85 }),
+    ]) {
+      view(state.terrain);
+      const { patch } = planTerrainEdit(state.terrain, world, b);
+      const preview = previewTerrain(state, patch);
+      expect(view(preview)).toEqual(rebuilt(preview));
+      commitTerrainEdit(state.terrain, patch);
+      expect(view(state.terrain)).toEqual(rebuilt(state.terrain));
+      view(remote);
+      remote = applyTerrainUpdate(remote, terrainUpdate(state.terrain, remote.revision)!);
+      expect(view(remote)).toEqual(rebuilt(remote));
+    }
+    expect(remote).toEqual(state.terrain);
   });
 });
