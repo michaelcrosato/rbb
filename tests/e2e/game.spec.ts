@@ -156,6 +156,28 @@ test('a graphics-context interruption pauses solo play and reload restores the s
   expect((await diagnostics(page)).player.position.z).toBeCloseTo(before.player.position.z, 2);
 });
 
+test('a menu drawn before another tab saved asks before replacing that expedition', async ({
+  page,
+  context,
+}) => {
+  const stale = await context.newPage();
+  await stale.goto('/');
+  await expect(stale.getByRole('button', { name: 'Enter the frontier' })).toBeVisible();
+  await page.bringToFront();
+  await startSolo(page, 'mobile', 'keyboard');
+  await gather(page, 'starter-fiber', 1);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Save & return to menu', exact: true }).press('Enter');
+  const saved = await page.evaluate(() => localStorage.getItem('rbb.save.v1'));
+  expect(saved).not.toBeNull();
+  // This menu still shows "no expedition"; starting from it must not overwrite the save.
+  await stale.bringToFront();
+  await stale.getByRole('button', { name: 'Enter the frontier' }).press('Enter');
+  await expect(stale.getByRole('heading', { name: 'A new beginning.' })).toBeVisible();
+  expect((await diagnostics(stale)).mode).toBeUndefined();
+  expect(await stale.evaluate(() => localStorage.getItem('rbb.save.v1'))).toBe(saved);
+});
+
 test('solo tabs protect the active save and load the latest expedition after ownership is released', async ({
   page,
   context,

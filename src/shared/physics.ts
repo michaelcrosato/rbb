@@ -3,7 +3,7 @@ import { clamp } from './math';
 import { resourceIsActive } from './state';
 import type { GameState, PlayerState, Building } from './state';
 import { nearbyResources, WORLD_HALF } from './world';
-import type { WorldDefinition } from './world';
+import type { Resource, WorldDefinition } from './world';
 import { structureSolids } from './structure-geometry';
 import { siteSolids } from './site-generation';
 import { bodyIntersects, containsXZ, raySolid } from './spatial';
@@ -53,7 +53,7 @@ export function blocked(
       radius &&
       resourceIsActive(state, r.id) &&
       Math.hypot(x - r.x, z - r.z) < radius + 0.33 &&
-      feet < r.y + (r.kind === 'tree' ? 8 : 1.5 * r.scale) &&
+      feet < resourceTop(r) &&
       feet + 1.7 > r.y
     )
       return true;
@@ -74,6 +74,41 @@ export function blocked(
         siteSolids(site).some((s) => bodyIntersects(s, x, feet, z)),
     )
   );
+}
+
+const resourceTop = (r: Resource) => r.y + (r.kind === 'tree' ? 8 : 1.5 * r.scale);
+
+/** Highest resource or landmark top at or below `feet` under the body. These solids block
+ * walking but are not ground, so a survivor who clears one mid-jump must land on it rather
+ * than sink inside, where every direction would stay blocked. */
+function solidTopBelow(
+  state: GameState,
+  world: WorldDefinition,
+  x: number,
+  z: number,
+  feet: number,
+): number {
+  let top = -Infinity;
+  for (const r of nearbyResources(world, x, z, 3)) {
+    const radius = RESOURCE_TYPES[r.kind].radius * r.scale;
+    if (
+      radius &&
+      resourceIsActive(state, r.id) &&
+      Math.hypot(x - r.x, z - r.z) < radius + 0.33 &&
+      resourceTop(r) <= feet + 0.001
+    )
+      top = Math.max(top, resourceTop(r));
+  }
+  for (const site of world.sites) {
+    if (Math.abs(site.x - x) >= 4 || Math.abs(site.z - z) >= 4 || state.sites[site.id]?.disabled)
+      continue;
+    for (const s of siteSolids(site)) {
+      // Same 0.015 m step tolerance as bodyIntersects, which lets the body pass that close.
+      const solidTop = s.y + s.height / 2;
+      if (solidTop <= feet + 0.015 && containsXZ(s, x, z, 0.33)) top = Math.max(top, solidTop);
+    }
+  }
+  return top;
 }
 
 export function lineOfSight(
@@ -211,7 +246,11 @@ export function stepPlayer(
     p.grounded = false;
     return;
   }
-  const floor = Math.max(floorAt(p.position.x, p.position.z), -1.2);
+  const floor = Math.max(
+    floorAt(p.position.x, p.position.z),
+    -1.2,
+    solidTopBelow(state, world, p.position.x, p.position.z, p.position.y),
+  );
   let ceiling = terrainCeiling(
     state.terrain,
     world,
@@ -242,7 +281,11 @@ export function stepPlayer(
         containsXZ(s, p.position.x, p.position.z, 0.33)
       )
         ceiling = Math.min(ceiling, s.y - s.height / 2);
-  p.velocityY -= BALANCE.gravity * state.tuning.gravity * dt;
+  // Tuned gravity can otherwise pass the schema bound on long drops and fail every snapshot.
+  p.velocityY = Math.max(
+    -BALANCE.terminalVelocity,
+    p.velocityY - BALANCE.gravity * state.tuning.gravity * dt,
+  );
   p.position.y += p.velocityY * dt;
   if (p.velocityY > 0 && p.position.y + 1.7 > ceiling) {
     p.position.y = ceiling - 1.7;

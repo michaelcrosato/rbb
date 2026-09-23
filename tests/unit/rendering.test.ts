@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
+import type { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import {
   ADVANCED_FEATURES,
   DEFAULT_GRAPHICS,
@@ -66,6 +68,32 @@ describe('rendering compatibility and device fallbacks', () => {
     expect(post.bytes).toBe(0);
     post.dispose();
     heightMap.dispose();
+  });
+  it('disposes the bloom high-pass material that three r186 leaves behind', () => {
+    const renderer = {
+      getPixelRatio: () => 1,
+      getSize: (size: THREE.Vector2) => size.set(640, 360),
+    } as unknown as THREE.WebGLRenderer;
+    const ocean = {
+      mesh: { material: { uniforms: { heightMap: { value: new THREE.Texture() } } } },
+    } as unknown as Ocean;
+    const post = new PostEffects(
+      renderer,
+      new THREE.Scene(),
+      new THREE.PerspectiveCamera(),
+      [],
+      [],
+      new SurfaceEffects(),
+      ocean,
+    );
+    post.configure(graphicsSchema.parse({ bloom: true }));
+    const { composer } = post as unknown as { composer: EffectComposer };
+    const bloom = composer.passes.find((pass) => pass instanceof UnrealBloomPass)!;
+    let disposed = 0;
+    bloom.materialHighPassFilter.addEventListener('dispose', () => disposed++);
+    post.configure(DEFAULT_GRAPHICS);
+    expect(disposed).toBe(1);
+    post.dispose();
   });
   it('keeps advanced features opt-in on every preset and fills old preferences', () => {
     const legacy = graphicsSchema.parse({ bloom: true, exposure: 1.2 });

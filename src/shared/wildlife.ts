@@ -153,7 +153,7 @@ export function stepWildlife(
     const predator =
       !sea && !aggressive
         ? state.animals.find(
-            (a) => a.species === 'wolf' && a.health > 0 && distance2(a, animal) < 8,
+            (a) => a !== animal && a.species === 'wolf' && a.health > 0 && distance2(a, animal) < 8,
           )
         : undefined;
     const threat = target?.position ?? predator;

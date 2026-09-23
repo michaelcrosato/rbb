@@ -30,8 +30,7 @@ export class WorldStore {
     this.initialized = version > 0;
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS snapshots (slot TEXT PRIMARY KEY, body TEXT NOT NULL, checksum TEXT NOT NULL, saved_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS identities (token_hash TEXT PRIMARY KEY, player_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
-      PRAGMA user_version=1;`);
+      CREATE TABLE IF NOT EXISTS identities (token_hash TEXT PRIMARY KEY, player_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);`);
   }
   load(): GameState | null {
     const current = this.db
@@ -85,6 +84,9 @@ export class WorldStore {
           'INSERT OR REPLACE INTO snapshots (slot, body, checksum, saved_at) VALUES (?, ?, ?, ?)',
         )
         .run('current', body, checksum(body), new Date().toISOString());
+      // Mark the database as a world only with its first snapshot. Stamping it on open made a
+      // first boot interrupted before saving look like a damaged world on every later start.
+      if (!this.initialized) this.db.exec('PRAGMA user_version=1');
       this.db.exec('COMMIT');
       this.initialized = true;
       this.currentValid = true;

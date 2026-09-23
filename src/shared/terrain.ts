@@ -513,7 +513,12 @@ export function planTerrainEdit(
   return { patch, mass };
 }
 
-const histories = new WeakMap<TerrainState, { revision: number; patch: TerrainPatch }[]>();
+/** Recent patches in order. A replicated update can span several revisions, so each entry
+ * records the revision it starts from as well as the one it produces. */
+const histories = new WeakMap<
+  TerrainState,
+  { base: number; revision: number; patch: TerrainPatch }[]
+>();
 export function commitTerrainEdit(terrain: TerrainState, patch: TerrainPatch): void {
   if (!Object.keys(patch).length) return;
   const cached = indices.get(terrain);
@@ -528,7 +533,7 @@ export function commitTerrainEdit(terrain: TerrainState, patch: TerrainPatch): v
     cached.revision = terrain.revision;
   }
   const history = histories.get(terrain) ?? [];
-  history.push({ revision: terrain.revision, patch });
+  history.push({ base: terrain.revision - 1, revision: terrain.revision, patch });
   if (history.length > 32) history.shift();
   histories.set(terrain, history);
 }
@@ -546,12 +551,17 @@ export const terrainUpdateSchema = z
 export type TerrainUpdate = z.infer<typeof terrainUpdateSchema>;
 export function terrainUpdate(terrain: TerrainState, since = -1): TerrainUpdate | undefined {
   if (since === terrain.revision) return undefined;
-  const history = histories.get(terrain) ?? [];
-  if (since >= 0 && history.some((h) => h.revision === since + 1)) {
-    const samples = Object.assign(
-      {},
-      ...history.filter((h) => h.revision > since).map((h) => h.patch),
-    );
+  const newer = (histories.get(terrain) ?? []).filter((h) => h.revision > since);
+  // Merge only an unbroken chain of patches that starts exactly at `since`. Otherwise a
+  // client that received several revisions in one snapshot would fall back to a full
+  // baseline and remesh every edited chunk.
+  if (
+    since >= 0 &&
+    newer[0]?.base === since &&
+    newer.every((h, i) => i === 0 || h.base === newer[i - 1].revision) &&
+    newer.at(-1)!.revision === terrain.revision
+  ) {
+    const samples = Object.assign({}, ...newer.map((h) => h.patch));
     if (Object.keys(samples).length <= TERRAIN.maxSamples)
       return { base: since, revision: terrain.revision, samples };
   }
@@ -574,7 +584,7 @@ export function applyTerrainUpdate(terrain: TerrainState, update: TerrainUpdate)
     indexTerrainPreview(terrain, next, update.samples);
     histories.set(next, [
       ...(histories.get(terrain) ?? []).slice(-31),
-      { revision: update.revision, patch: update.samples },
+      { base: update.base, revision: update.revision, patch: update.samples },
     ]);
   }
   return next;

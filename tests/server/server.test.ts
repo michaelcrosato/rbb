@@ -3,6 +3,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
+import { createConnection } from 'node:net';
+import { randomBytes } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import pkg from '../../package.json' with { type: 'json' };
@@ -610,6 +612,44 @@ describe('authoritative world server', () => {
       expect((await peer.wait('snapshot')).snapshot.terrain).toBeUndefined();
     expect(peer.ws.readyState).toBe(WebSocket.OPEN);
   });
+  it('frees a stalled handshake slot and ignores a hello sent after the timeout', async () => {
+    const server = await setup();
+    // A raw client that completes the upgrade and then ignores close frames.
+    const raw = createConnection(server.port, '127.0.0.1');
+    await once(raw, 'connect');
+    raw.write(
+      [
+        'GET / HTTP/1.1',
+        `Host: 127.0.0.1:${server.port}`,
+        'Upgrade: websocket',
+        'Connection: Upgrade',
+        `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}`,
+        'Sec-WebSocket-Version: 13',
+        '',
+        '',
+      ].join('\r\n'),
+    );
+    await once(raw, 'data');
+    raw.on('error', () => {});
+    const players = server.diagnostics().players;
+    expect(server.diagnostics().connections).toBe(1);
+    await delay(5600);
+    const hello = Buffer.from(
+      JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, name: 'Late' }),
+    );
+    const mask = randomBytes(4);
+    raw.write(
+      Buffer.concat([
+        Buffer.from([0x81, 0x80 | hello.length]),
+        mask,
+        hello.map((byte, i) => byte ^ mask[i % 4]),
+      ]),
+    );
+    await delay(300);
+    expect(server.diagnostics().connections).toBe(0);
+    expect(server.diagnostics().players).toBe(players);
+    raw.destroy();
+  });
   it('limits action bursts and closes message floods', async () => {
     const server = await setup();
     const { peer } = await joinWorld(server);
@@ -732,6 +772,21 @@ describe('durability and rate limits', () => {
     store.db.exec('PRAGMA user_version=2');
     store.close();
     expect(() => new WorldStore(path)).toThrow(/newer schema/);
+  });
+  it('starts a new world when an earlier first boot stopped before its first snapshot', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'rbb-first-boot-'));
+    directories.push(dir);
+    const path = join(dir, 'world.db');
+    new WorldStore(path).close();
+    const store = new WorldStore(path);
+    expect(store.load()).toBeNull();
+    store.save(createState(generateWorld('first-boot')));
+    store.close();
+    const reopened = new WorldStore(path);
+    expect(reopened.load()!.seed).toBe('first-boot');
+    reopened.db.prepare('DELETE FROM snapshots').run();
+    expect(() => reopened.load()).toThrow(/no world was overwritten/);
+    reopened.close();
   });
   it('atomically recovers a corrupt snapshot from the previous healthy snapshot', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'rbb-store-'));

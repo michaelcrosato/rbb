@@ -1,4 +1,4 @@
-import { BALANCE, BUILDINGS, GRADE_IDS, STRUCTURE_GRADES } from './content';
+import { BALANCE, BUILDINGS, GRADE_IDS, MIN_STRUCTURE_HEALTH, STRUCTURE_GRADES } from './content';
 import type { ItemId } from './content';
 import { carryCapacity, transact, transferInventory } from './inventory';
 import { canRemoveItems, normalizeEquipment } from './equipment';
@@ -143,7 +143,7 @@ export function damageStructure(
   const b = state.buildings.find((b) => b.id === target);
   if (!b || !Number.isFinite(damage) || damage <= 0) return false;
   const health = b.health - damage * (1 - STRUCTURE_GRADES[b.grade].resistance);
-  if (health > 0) {
+  if (health >= MIN_STRUCTURE_HEALTH) {
     b.health = health;
     return true;
   }
